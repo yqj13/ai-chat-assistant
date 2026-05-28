@@ -1,0 +1,338 @@
+<script setup>
+import { computed } from 'vue'
+
+const props = defineProps({
+  collapsed: Boolean,
+  conversations: Array,
+  currentConversation: Object
+})
+
+const emit = defineEmits(['toggle', 'select', 'new'])
+
+const formatTime = (timestamp) => {
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  
+  if (diff < 60000) {
+    return '刚刚'
+  } else if (diff < 3600000) {
+    return Math.floor(diff / 60000) + '分钟前'
+  } else if (diff < 86400000) {
+    return Math.floor(diff / 3600000) + '小时前'
+  } else if (diff < 604800000) {
+    return Math.floor(diff / 86400000) + '天前'
+  } else {
+    return date.getMonth() + 1 + '/' + date.getDate()
+  }
+}
+</script>
+
+<template>
+  <aside 
+    class="sidebar"
+    :class="{ 'sidebar-collapsed': collapsed }"
+  >
+    <div class="sidebar-header">
+      <div class="logo" v-if="!collapsed">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 15s1.5-2 4-2 4 2 4 2"/>
+          <path d="M9 9h.01"/>
+          <path d="M15 9h.01"/>
+        </svg>
+        <span>AI Assistant</span>
+      </div>
+      <div class="logo-mini" v-else>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 15s1.5-2 4-2 4 2 4 2"/>
+          <path d="M9 9h.01"/>
+          <path d="M15 9h.01"/>
+        </svg>
+      </div>
+    </div>
+    
+    <button 
+      class="new-conversation-btn"
+      @click="emit('new')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 5v14"/>
+        <path d="M5 12h14"/>
+      </svg>
+      <span v-if="!collapsed">新建对话</span>
+    </button>
+    
+    <div class="conversation-list" v-if="!collapsed">
+      <div 
+        v-for="conv in conversations" 
+        :key="conv.id"
+        class="conversation-item"
+        :class="{ 'active': currentConversation?.id === conv.id }"
+        @click="emit('select', conv)"
+      >
+        <div class="conv-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <div class="conv-info">
+          <div class="conv-title">{{ conv.title }}</div>
+          <div class="conv-preview">
+            {{ conv.lastMessage || '暂无消息' }}
+          </div>
+        </div>
+        <div class="conv-time">
+          {{ formatTime(conv.timestamp) }}
+        </div>
+      </div>
+    </div>
+    
+    <div class="conversation-list-mini" v-else>
+      <div 
+        v-for="conv in conversations" 
+        :key="conv.id"
+        class="conversation-item-mini"
+        :class="{ 'active': currentConversation?.id === conv.id }"
+        :title="conv.title"
+        @click="emit('select', conv)"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+    </div>
+    
+    <button 
+      class="toggle-btn"
+      @click="emit('toggle')"
+    >
+      <svg v-if="!collapsed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </button>
+  </aside>
+</template>
+
+<style scoped>
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 260px;
+  background: #fff;
+  border-right: 1px solid #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+  z-index: 100;
+}
+
+.sidebar-collapsed {
+  width: 64px;
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.logo svg,
+.logo-mini svg {
+  width: 32px;
+  height: 32px;
+}
+
+.logo-mini {
+  display: flex;
+  justify-content: center;
+  color: #1890ff;
+}
+
+.new-conversation-btn {
+  margin: 16px;
+  padding: 12px;
+  background: #1890ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.new-conversation-btn:hover {
+  background: #40a9ff;
+}
+
+.new-conversation-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.conversation-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 4px;
+}
+
+.conversation-item:hover {
+  background: #f5f5f5;
+}
+
+.conversation-item.active {
+  background: #e6f7ff;
+}
+
+.conv-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1890ff;
+  flex-shrink: 0;
+}
+
+.conv-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.conv-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-preview {
+  font-size: 12px;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-time {
+  font-size: 12px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+
+.conversation-list-mini {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-item-mini {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.conversation-item-mini:hover {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.conversation-item-mini.active {
+  background: #1890ff;
+  color: #fff;
+}
+
+.conversation-item-mini svg {
+  width: 20px;
+  height: 20px;
+}
+
+.toggle-btn {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #999;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.toggle-btn:hover {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.toggle-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    z-index: 100;
+  }
+  
+  .sidebar-collapsed {
+    width: 64px;
+  }
+}
+</style>
