@@ -33,9 +33,12 @@ const props = defineProps({
 })
 
 const toolNames = {
+  get_weather: '天气查询',
+  web_search: '联网搜索',
+  calculator: '计算器',
+  get_current_time: '时间查询',
   weather: '天气查询',
   search: '联网搜索',
-  calculator: '计算器',
   time: '时间查询'
 }
 

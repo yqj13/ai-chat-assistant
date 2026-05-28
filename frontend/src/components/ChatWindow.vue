@@ -35,8 +35,6 @@ const isLoading = ref(false)
 const isOnline = ref(false)
 const messagesContainer = ref(null)
 const eventSource = ref(null)
-const contextId = ref(null)
-const lastMessageId = ref(null)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -64,107 +62,96 @@ const closeEventSource = () => {
   }
 }
 
-const connectSSE = (uid = 'default') => {
-  let url = `http://localhost:8000/api/chat/stream`
-  
-  closeEventSource()
-  
-  const eventSourceInstance = new EventSource(url)
-  
-  eventSourceInstance.onopen = () => {
-    console.log('SSE连接已建立')
-  }
-  
-  eventSourceInstance.addEventListener('message', (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      
-      if (data.message_id && data.content) {
-        const botIndex = messages.value.length - 1
-        if (botIndex >= 0 && messages.value[botIndex].role === 'assistant') {
-          messages.value[botIndex].content += data.content
-          messages.value[botIndex].messageId = data.message_id
-          messages.value[botIndex].finished = data.finish_status
-        }
-        
-        if (data.context_id) {
-          contextId.value = data.context_id
-        }
-        
-        if (data.finish_status) {
-          lastMessageId.value = data.message_id
-          isLoading.value = false
-        }
-      }
-    } catch (error) {
-      console.error('解析SSE消息失败:', error)
-    }
-  })
-  
-  eventSourceInstance.addEventListener('thinking', (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      const botIndex = messages.value.length - 1
-      if (botIndex >= 0 && messages.value[botIndex].role === 'assistant') {
-        messages.value[botIndex].thinking = data.reasoning_content || '正在思考...'
-      }
-    } catch (error) {
-      console.error('解析thinking消息失败:', error)
-    }
-  })
-  
-  eventSourceInstance.onerror = (error) => {
-    console.error('SSE连接错误:', error)
-    isLoading.value = false
-    closeEventSource()
-  }
-  
-  eventSourceInstance.onclose = () => {
-    console.log('SSE连接已关闭')
-  }
-  
-  eventSource.value = eventSourceInstance
-}
-
 const handleSend = async (text) => {
   messages.value.push({ role: 'user', content: text })
   
   messages.value.push({
     role: 'assistant',
     content: '',
-    thinking: '正在思考...',
+    thinking: '正在分析问题...',
     finished: false,
     messageId: null
   })
   
   isLoading.value = true
-  contextId.value = null
   
   try {
-    const response = await axios.post('http://localhost:8000/api/chat', {
-      messages: [{ role: 'user', content: text }],
+    const response = await axios.post('http://localhost:8000/v1/chat/completions', {
       model: 'gpt-3.5-turbo',
-      context_id: contextId.value,
-      last_message_id: lastMessageId.value
+      messages: [{ role: 'user', content: text }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "获取指定城市的当前天气信息",
+            parameters: {
+              type: "object",
+              properties: {
+                city: { type: "string", description: "城市名称" }
+              },
+              required: ["city"]
+            }
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "web_search",
+            description: "联网搜索相关信息",
+            parameters: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "搜索关键词" }
+              },
+              required: ["query"]
+            }
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "calculator",
+            description: "执行数学计算",
+            parameters: {
+              type: "object",
+              properties: {
+                expression: { type: "string", description: "数学表达式" }
+              },
+              required: ["expression"]
+            }
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "get_current_time",
+            description: "获取当前时间",
+            parameters: { type: "object", properties: {} }
+          }
+        }
+      ],
+      tool_choice: "auto",
+      temperature: 0.3
     })
     
     const botIndex = messages.value.length - 1
-    messages.value[botIndex].content = response.data.reply
+    const reply = response.data.choices[0].message.content
+    
+    messages.value[botIndex].content = reply
     messages.value[botIndex].finished = true
-    messages.value[botIndex].messageId = response.data.message_id
+    messages.value[botIndex].thinking = ''
     
-    if (response.data.context_id) {
-      contextId.value = response.data.context_id
-    }
-    
-    if (response.data.tool_used) {
-      messages.value[botIndex].toolUsed = response.data.tool_used
+    if (response.data.choices[0].finish_reason === 'tool_calls') {
+      messages.value[botIndex].toolUsed = response.data.choices[0].message.tool_calls?.[0]?.function.name
     }
     
   } catch (error) {
+    console.error('API调用失败:', error)
     const botIndex = messages.value.length - 1
     messages.value[botIndex].content = '抱歉，服务器暂时无法响应，请稍后重试。'
     messages.value[botIndex].finished = true
+    messages.value[botIndex].thinking = ''
   } finally {
     isLoading.value = false
   }
