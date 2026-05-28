@@ -12,9 +12,15 @@ from datetime import datetime
 import math
 import requests
 from bs4 import BeautifulSoup
-import os
 
-app = FastAPI(title="AI Chat Assistant API", version="2.0.0")
+from langchain.agents import initialize_agent, AgentType
+from langchain.tools import BaseTool
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema.output_parser import StrOutputParser
+from langchain_openai import ChatOpenAI
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+
+app = FastAPI(title="AI Chat Assistant API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,176 +30,110 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Message(BaseModel):
-    role: str
-    content: str
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
+BAILIAN_API_KEY = "sk-14641f425c314266ae08926dd641296a"
+BAILIAN_API_BASE = "https://api.qnaigc.com/v1"
 
-class ToolCall(BaseModel):
-    id: str
-    type: str = "function"
-    function: Dict[str, Any]
-
-class ChatCompletionRequest(BaseModel):
-    model: str = "gpt-3.5-turbo"
-    messages: List[Message]
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_choice: Optional[str] = "auto"
-    temperature: float = 0.3
-
-class ChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[Dict[str, Any]]
-
-class ToolResult(BaseModel):
-    tool_name: str
-    success: bool
-    result: Any
-    error: Optional[str] = None
+llm = ChatOpenAI(
+    model="qwen-7b-chat",
+    api_key=BAILIAN_API_KEY,
+    base_url=BAILIAN_API_BASE,
+    temperature=0.3,
+    streaming=True
+)
 
 conversation_contexts: Dict[str, dict] = {}
+message_cache: Dict[str, dict] = {}
 
-TOOLS_JSON_SCHEMA = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "获取指定城市的当前天气信息",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city": {
-                        "type": "string",
-                        "description": "城市名称，如'北京'、'上海'等"
-                    }
-                },
-                "required": ["city"]
+class GetWeatherTool(BaseTool):
+    name = "get_weather"
+    description = "获取指定城市的当前天气信息"
+
+    def _run(self, city: str) -> str:
+        try:
+            url = f"http://wttr.in/{city}?format=j1"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if "results" in data and len(data["results"]) > 0:
+                    r = data["results"][0]
+                    city_name = r["location"]["name"]
+                    current = r["current_condition"][0]
+                    return f"## 🌤️ {city_name}天气信息\n\n- **温度**: {current['temp_C']}°C\n- **天气**: {current['weatherDesc'][0]['value']}\n- **湿度**: {current['humidity']}%\n- **风速**: {current['windspeedKmph']} km/h"
+                else:
+                    return "❌ 查询失败：未获取到天气数据"
+            else:
+                return f"❌ 查询失败：HTTP状态码 {resp.status_code}"
+        except Exception as e:
+            return f"❌ 异常：{e}"
+
+class WebSearchTool(BaseTool):
+    name = "web_search"
+    description = "联网搜索相关信息，获取实时数据"
+
+    def _run(self, query: str) -> str:
+        try:
+            url = f"https://www.bing.com/search?q={requests.utils.quote(query)}"
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                results = []
+                for item in soup.find_all('li', class_='b_algo')[:5]:
+                    title = item.find('h2').get_text() if item.find('h2') else ""
+                    link = item.find('a')['href'] if item.find('a') else ""
+                    desc = item.find('p').get_text() if item.find('p') else ""
+                    if title and link:
+                        results.append(f"- [{title}]({link})\n  {desc[:100]}...")
+                if results:
+                    return f"## 🔍 搜索结果（{query}）\n\n" + "\n\n".join(results)
+                else:
+                    return "❌ 未找到相关搜索结果"
+            else:
+                return f"❌ 搜索失败：HTTP状态码 {resp.status_code}"
+        except Exception as e:
+            return f"❌ 异常：{e}"
+
+class CalculatorTool(BaseTool):
+    name = "calculator"
+    description = "执行数学计算，支持基本运算和常用数学函数"
+
+    def _run(self, expression: str) -> str:
+        try:
+            allowed_funcs = {
+                'sin': math.sin, 'cos': math.cos, 'tan': math.tan,
+                'log': math.log, 'sqrt': math.sqrt, 'abs': abs,
+                'pi': math.pi, 'e': math.e,
+                'pow': pow, 'exp': math.exp
             }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "联网搜索相关信息，获取实时数据",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "搜索关键词"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calculator",
-            "description": "执行数学计算，支持基本运算和常用数学函数",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "数学表达式，如'2+3*4'、'sin(3.14)'等"
-                    }
-                },
-                "required": ["expression"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_time",
-            "description": "获取当前系统时间和日期",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    }
+            result = eval(expression, {"__builtins__": None}, allowed_funcs)
+            return f"## 🧮 计算结果\n\n`{expression}` = **{result}**"
+        except SyntaxError:
+            return f"❌ 语法错误：无法解析表达式 `{expression}`"
+        except Exception as e:
+            return f"❌ 计算异常：{e}"
+
+class GetCurrentTimeTool(BaseTool):
+    name = "get_current_time"
+    description = "获取当前系统时间和日期"
+
+    def _run(self) -> str:
+        now = datetime.now()
+        return f"## 🕐 当前时间\n\n- **日期**: {now.strftime('%Y年%m月%d日')}\n- **时间**: {now.strftime('%H:%M:%S')}\n- **星期**: {now.strftime('%A')}"
+
+tools = [
+    GetWeatherTool(),
+    WebSearchTool(),
+    CalculatorTool(),
+    GetCurrentTimeTool()
 ]
 
-TOOL_MAP = {}
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是一个有帮助的AI助手。使用提供的工具来回答问题。"),
+    ("user", "{input}"),
+    ("agent_info", "{agent_info}")
+])
 
-def register_tool(name: str, func):
-    TOOL_MAP[name] = func
-
-async def get_weather(city: str) -> str:
-    try:
-        url = f"http://wttr.in/{city}?format=j1"
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if "results" in data:
-                r = data["results"][0]
-                city_name = r["location"]["name"]
-                now = r["now"]
-                text = now["text"]
-                temp = now["temperature"]
-                humidity = now["humidity"]
-                wind = now["windspeedKmph"]
-                return f"{city_name}当前天气：{text}，气温 {temp}°C，湿度 {humidity}%，风速 {wind} km/h"
-            else:
-                return "查询失败：未获取到天气数据"
-        else:
-            return f"查询失败：HTTP状态码 {resp.status_code}"
-    except Exception as e:
-        return f"异常：{e}"
-
-async def web_search(query: str) -> str:
-    try:
-        url = f"https://www.bing.com/search?q={requests.utils.quote(query)}"
-        resp = requests.get(url, timeout=15)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            results = []
-            for item in soup.find_all('li', class_='b_algo')[:5]:
-                title = item.find('h2').get_text() if item.find('h2') else ""
-                link = item.find('a')['href'] if item.find('a') else ""
-                desc = item.find('p').get_text() if item.find('p') else ""
-                if title and link:
-                    results.append(f"- [{title}]({link})\n  {desc[:80]}...")
-            if results:
-                return "\n\n".join(results)
-            else:
-                return "未找到相关搜索结果"
-        else:
-            return f"搜索失败：HTTP状态码 {resp.status_code}"
-    except Exception as e:
-        return f"异常：{e}"
-
-async def calculator(expression: str) -> str:
-    try:
-        allowed_funcs = {
-            'sin': math.sin, 'cos': math.cos, 'tan': math.tan,
-            'log': math.log, 'sqrt': math.sqrt, 'abs': abs,
-            'pi': math.pi, 'e': math.e,
-            'pow': pow, 'exp': math.exp
-        }
-        result = eval(expression, {"__builtins__": None}, allowed_funcs)
-        return f"计算结果：{expression} = {result}"
-    except SyntaxError:
-        return f"语法错误：无法解析表达式 '{expression}'"
-    except Exception as e:
-        return f"计算异常：{e}"
-
-async def get_current_time() -> str:
-    now = datetime.now()
-    return f"当前时间：{now.strftime('%Y年%m月%d日 %H:%M:%S')}，星期{now.strftime('%A')}"
-
-register_tool("get_weather", get_weather)
-register_tool("web_search", web_search)
-register_tool("calculator", calculator)
-register_tool("get_current_time", get_current_time)
+agent = create_openai_tools_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 def generate_message_id() -> str:
     return hashlib.md5(f"{time.time()}{random.random()}".encode()).hexdigest()[:10]
@@ -204,76 +144,31 @@ def generate_context_id() -> str:
 def generate_completion_id() -> str:
     return f"chatcmpl-{hashlib.md5(f'{time.time()}'.encode()).hexdigest()[:24]}"
 
-def detect_need_tool(messages: List[Dict[str, str]]) -> bool:
-    last_message = messages[-1]["content"].lower() if messages else ""
-    
-    tool_triggers = [
-        ("天气", "get_weather"),
-        ("搜索", "web_search"),
-        ("查找", "web_search"),
-        ("查询", "web_search"),
-        ("计算", "calculator"),
-        ("加", "calculator"),
-        ("减", "calculator"),
-        ("乘", "calculator"),
-        ("除", "calculator"),
-        ("等于", "calculator"),
-        ("时间", "get_current_time"),
-        ("几点", "get_current_time")
-    ]
-    
-    for trigger, tool_name in tool_triggers:
-        if trigger in last_message:
-            return True, tool_name
-    
-    return False, None
+class Message(BaseModel):
+    role: str
+    content: str
+    name: Optional[str] = None
+    tool_call_id: Optional[str] = None
 
-def parse_tool_arguments(user_message: str, tool_name: str) -> Dict[str, Any]:
-    user_message = user_message.lower()
-    
-    if tool_name == "get_weather":
-        import re
-        city_pattern = r"(北京|上海|广州|深圳|杭州|南京|成都|武汉|西安|重庆|天津|苏州|郑州|长沙|沈阳|青岛|济南|哈尔滨|佛山|东莞|无锡|宁波|合肥|大连|厦门|福州|长春|石家庄)"
-        match = re.search(city_pattern, user_message)
-        return {"city": match.group(1) if match else "北京"}
-    
-    elif tool_name == "web_search":
-        query = user_message.replace("搜索", "").replace("查找", "").replace("查询", "").strip()
-        return {"query": query if query else user_message}
-    
-    elif tool_name == "calculator":
-        expression = user_message
-        for char in ["计算", "算一下", "等于", "是多少", "?", "？"]:
-            expression = expression.replace(char, "")
-        return {"expression": expression.strip()}
-    
-    elif tool_name == "get_current_time":
-        return {}
-    
-    return {}
+class ChatCompletionRequest(BaseModel):
+    model: str = "qwen-7b-chat"
+    messages: List[Message]
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[str] = "auto"
+    temperature: float = 0.3
+    context_id: Optional[str] = None
+    last_message_id: Optional[str] = None
 
-async def simulate_model_decision(messages: List[Dict[str, str]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-    need_tool, tool_name = detect_need_tool(messages)
-    
-    if need_tool and tools:
-        arguments = parse_tool_arguments(messages[-1]["content"], tool_name)
-        
-        return {
-            "tool_calls": [{
-                "id": generate_message_id(),
-                "type": "function",
-                "function": {
-                    "name": tool_name,
-                    "arguments": arguments
-                }
-            }]
-        }
-    else:
-        return {"content": "这是一个普通对话回复。"}
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[Dict[str, Any]]
 
 @app.get("/")
 async def root():
-    return {"message": "AI Chat Assistant API v2.0 is running"}
+    return {"message": "AI Chat Assistant API v3.0 (LangChain + 阿里百炼)"}
 
 @app.get("/health")
 async def health_check():
@@ -281,69 +176,28 @@ async def health_check():
 
 @app.get("/tools")
 async def list_tools():
-    return {"tools": TOOLS_JSON_SCHEMA}
+    tool_list = []
+    for tool in tools:
+        tool_list.append({
+            "name": tool.name,
+            "description": tool.description
+        })
+    return {"tools": tool_list}
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
     completion_id = generate_completion_id()
     created = int(time.time())
     
-    messages_dict = [m.dict() for m in request.messages]
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
     
-    model_decision = await simulate_model_decision(messages_dict, request.tools)
+    user_message = request.messages[-1].content
     
-    if "tool_calls" in model_decision:
-        tool_call = model_decision["tool_calls"][0]
-        function_name = tool_call["function"]["name"]
-        function_args = tool_call["function"]["arguments"]
+    try:
+        result = await agent_executor.ainvoke({"input": user_message})
+        reply_content = result.get("output", "暂无响应")
         
-        if function_name in TOOL_MAP:
-            tool_result = await TOOL_MAP[function_name](**function_args)
-            
-            tool_message = Message(
-                role="tool",
-                content=tool_result,
-                name=function_name,
-                tool_call_id=tool_call["id"]
-            )
-            
-            messages_dict.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [tool_call]
-            })
-            messages_dict.append(tool_message.dict())
-            
-            final_response = await simulate_model_decision(messages_dict, None)
-            
-            return ChatCompletionResponse(
-                id=completion_id,
-                created=created,
-                model=request.model,
-                choices=[{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": final_response.get("content", "工具调用完成")
-                    },
-                    "finish_reason": "tool_calls"
-                }]
-            )
-        else:
-            return ChatCompletionResponse(
-                id=completion_id,
-                created=created,
-                model=request.model,
-                choices=[{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"未知工具: {function_name}"
-                    },
-                    "finish_reason": "stop"
-                }]
-            )
-    else:
         return ChatCompletionResponse(
             id=completion_id,
             created=created,
@@ -352,84 +206,31 @@ async def chat_completions(request: ChatCompletionRequest):
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": model_decision["content"]
+                    "content": reply_content
                 },
                 "finish_reason": "stop"
             }]
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/chat/completions/stream")
 async def chat_completions_stream(request: ChatCompletionRequest):
     completion_id = generate_completion_id()
     created = int(time.time())
+    context_id = request.context_id or generate_context_id()
+    last_message_id = request.last_message_id
     
-    messages_dict = [m.dict() for m in request.messages]
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
     
-    async def event_generator():
-        model_decision = await simulate_model_decision(messages_dict, request.tools)
+    user_message = request.messages[-1].content
+    
+    if last_message_id and last_message_id in message_cache:
+        cached_message = message_cache[last_message_id]
         
-        if "tool_calls" in model_decision:
-            tool_call = model_decision["tool_calls"][0]
-            function_name = tool_call["function"]["name"]
-            
-            yield {
-                "event": "thinking",
-                "data": json.dumps({
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": request.model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": [tool_call]
-                        },
-                        "finish_reason": None
-                    }]
-                })
-            }
-            
-            if function_name in TOOL_MAP:
-                function_args = tool_call["function"]["arguments"]
-                tool_result = await TOOL_MAP[function_name](**function_args)
-                
-                messages_dict.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [tool_call]
-                })
-                messages_dict.append({
-                    "role": "tool",
-                    "content": tool_result,
-                    "name": function_name,
-                    "tool_call_id": tool_call["id"]
-                })
-                
-                final_response = await simulate_model_decision(messages_dict, None)
-                content = final_response.get("content", tool_result)
-                
-                for i, char in enumerate(content):
-                    await asyncio.sleep(0.05)
-                    yield {
-                        "event": "message",
-                        "data": json.dumps({
-                            "id": completion_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": request.model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {"content": char},
-                                "finish_reason": None if i < len(content) - 1 else "stop"
-                            }]
-                        })
-                    }
-        else:
-            content = model_decision["content"]
-            for i, char in enumerate(content):
-                await asyncio.sleep(0.05)
+        async def replay_cache():
+            for i, part in enumerate(cached_message.get("parts", [])):
                 yield {
                     "event": "message",
                     "data": json.dumps({
@@ -437,13 +238,84 @@ async def chat_completions_stream(request: ChatCompletionRequest):
                         "object": "chat.completion.chunk",
                         "created": created,
                         "model": request.model,
+                        "context_id": context_id,
+                        "message_id": last_message_id,
                         "choices": [{
                             "index": 0,
-                            "delta": {"content": char},
-                            "finish_reason": None if i < len(content) - 1 else "stop"
+                            "delta": {"content": part},
+                            "finish_reason": None if i < len(cached_message["parts"]) - 1 else "stop"
                         }]
                     })
                 }
+                await asyncio.sleep(0.05)
+        return EventSourceResponse(replay_cache())
+    
+    async def event_generator():
+        nonlocal context_id
+        
+        try:
+            full_response = ""
+            parts = []
+            
+            async for chunk in agent_executor.astream({"input": user_message}):
+                if "output" in chunk:
+                    content = chunk["output"]
+                    if content:
+                        delta = content[len(full_response):]
+                        if delta:
+                            full_response = content
+                            parts.append(delta)
+                            
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({
+                                    "id": completion_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created,
+                                    "model": request.model,
+                                    "context_id": context_id,
+                                    "message_id": completion_id[:10],
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {"content": delta},
+                                        "finish_reason": None
+                                    }]
+                                })
+                            }
+                            await asyncio.sleep(0.05)
+            
+            if full_response:
+                message_cache[completion_id[:10]] = {
+                    "parts": parts,
+                    "context_id": context_id,
+                    "full_content": full_response,
+                    "timestamp": time.time()
+                }
+                
+                yield {
+                    "event": "message",
+                    "data": json.dumps({
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": request.model,
+                        "context_id": context_id,
+                        "message_id": completion_id[:10],
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop"
+                        }]
+                    })
+                }
+        
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "error": str(e)
+                })
+            }
     
     return EventSourceResponse(event_generator())
 
@@ -466,7 +338,8 @@ async def connect(request: Request, uid: str, context_id: Optional[str] = None):
             "event": "connected",
             "data": json.dumps({
                 "context_id": context_id,
-                "message": "SSE连接已建立"
+                "message": "SSE连接已建立",
+                "available_tools": [tool.name for tool in tools]
             })
         }
         
@@ -476,6 +349,21 @@ async def connect(request: Request, uid: str, context_id: Optional[str] = None):
                 break
     
     return EventSourceResponse(event_generator())
+
+@app.get("/context/{uid}")
+async def get_context(uid: str):
+    if uid in conversation_contexts:
+        return conversation_contexts[uid]
+    else:
+        return {"error": "Context not found"}
+
+@app.delete("/context/{uid}/{context_id}")
+async def delete_context(uid: str, context_id: str):
+    if uid in conversation_contexts and context_id in conversation_contexts[uid]:
+        del conversation_contexts[uid][context_id]
+        return {"message": "Context deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Context not found")
 
 if __name__ == "__main__":
     import uvicorn

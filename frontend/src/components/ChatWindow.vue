@@ -35,6 +35,8 @@ const isLoading = ref(false)
 const isOnline = ref(false)
 const messagesContainer = ref(null)
 const eventSource = ref(null)
+const contextId = ref(null)
+const lastMessageId = ref(null)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -77,62 +79,11 @@ const handleSend = async (text) => {
   
   try {
     const response = await axios.post('http://localhost:8000/v1/chat/completions', {
-      model: 'gpt-3.5-turbo',
+      model: 'qwen-7b-chat',
       messages: [{ role: 'user', content: text }],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "get_weather",
-            description: "获取指定城市的当前天气信息",
-            parameters: {
-              type: "object",
-              properties: {
-                city: { type: "string", description: "城市名称" }
-              },
-              required: ["city"]
-            }
-          }
-        },
-        {
-          type: "function",
-          function: {
-            name: "web_search",
-            description: "联网搜索相关信息",
-            parameters: {
-              type: "object",
-              properties: {
-                query: { type: "string", description: "搜索关键词" }
-              },
-              required: ["query"]
-            }
-          }
-        },
-        {
-          type: "function",
-          function: {
-            name: "calculator",
-            description: "执行数学计算",
-            parameters: {
-              type: "object",
-              properties: {
-                expression: { type: "string", description: "数学表达式" }
-              },
-              required: ["expression"]
-            }
-          }
-        },
-        {
-          type: "function",
-          function: {
-            name: "get_current_time",
-            description: "获取当前时间",
-            parameters: { type: "object", properties: {} }
-          }
-        }
-      ],
-      tool_choice: "auto",
-      temperature: 0.3
+      temperature: 0.3,
+      context_id: contextId.value,
+      last_message_id: lastMessageId.value
     })
     
     const botIndex = messages.value.length - 1
@@ -141,15 +92,116 @@ const handleSend = async (text) => {
     messages.value[botIndex].content = reply
     messages.value[botIndex].finished = true
     messages.value[botIndex].thinking = ''
+    messages.value[botIndex].messageId = response.data.id
     
     if (response.data.choices[0].finish_reason === 'tool_calls') {
       messages.value[botIndex].toolUsed = response.data.choices[0].message.tool_calls?.[0]?.function.name
     }
     
+    if (response.data.context_id) {
+      contextId.value = response.data.context_id
+    }
+    
+    lastMessageId.value = response.data.id
+    
   } catch (error) {
     console.error('API调用失败:', error)
     const botIndex = messages.value.length - 1
     messages.value[botIndex].content = '抱歉，服务器暂时无法响应，请稍后重试。'
+    messages.value[botIndex].finished = true
+    messages.value[botIndex].thinking = ''
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const handleSendStream = async (text) => {
+  messages.value.push({ role: 'user', content: text })
+  
+  const botIndex = messages.value.length
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    thinking: '正在分析问题...',
+    finished: false,
+    messageId: null
+  })
+  
+  isLoading.value = true
+  
+  closeEventSource()
+  
+  try {
+    const response = await fetch('http://localhost:8000/v1/chat/completions/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'qwen-7b-chat',
+        messages: [{ role: 'user', content: text }],
+        temperature: 0.3,
+        context_id: contextId.value,
+        last_message_id: lastMessageId.value
+      })
+    })
+    
+    if (!response.body) {
+      throw new Error('Response body is null')
+    }
+    
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    
+    while (true) {
+      const { done, value } = await reader.read()
+      
+      if (done) {
+        break
+      }
+      
+      const text = decoder.decode(value, { stream: true })
+      const lines = text.split('\n')
+      
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const data = JSON.parse(line.replace(/^data: /, ''))
+            
+            if (data.choices && data.choices[0] && data.choices[0].delta) {
+              const delta = data.choices[0].delta
+              
+              if (delta.content) {
+                messages.value[botIndex].thinking = ''
+                messages.value[botIndex].content += delta.content
+              }
+              
+              if (data.context_id) {
+                contextId.value = data.context_id
+              }
+              
+              if (data.message_id) {
+                messages.value[botIndex].messageId = data.message_id
+                lastMessageId.value = data.message_id
+              }
+              
+              if (data.choices[0].finish_reason === 'stop') {
+                messages.value[botIndex].finished = true
+              }
+            }
+          } catch (e) {
+            console.error('解析流式消息失败:', e)
+          }
+        }
+      }
+    }
+    
+    messages.value[botIndex].finished = true
+    
+  } catch (error) {
+    console.error('流式请求失败:', error)
+    const botIndex = messages.value.length - 1
+    messages.value[botIndex].content = '抱歉，流式请求失败，请稍后重试。'
     messages.value[botIndex].finished = true
     messages.value[botIndex].thinking = ''
   } finally {

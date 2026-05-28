@@ -14,7 +14,7 @@
           <span class="dot"></span>
         </span>
       </div>
-      <p v-html="formattedContent"></p>
+      <div class="markdown-content" v-html="renderedContent"></div>
       <div v-if="message.toolUsed" class="tool-tag">
         🛠️ 使用工具: {{ getToolName(message.toolUsed) }}
       </div>
@@ -46,10 +46,27 @@ const getToolName = (toolUsed) => {
   return toolNames[toolUsed] || toolUsed
 }
 
-const formattedContent = computed(() => {
+const renderedContent = computed(() => {
   let content = props.message.content || ''
+  
+  content = content.replace(/\\n/g, '\n')
+  
+  content = content.replace(/^### (.*$)/gim, '<h3>$1</h3>')
+  content = content.replace(/^## (.*$)/gim, '<h2>$1</h2>')
+  content = content.replace(/^# (.*$)/gim, '<h1>$1</h1>')
+  
+  content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  content = content.replace(/\*(.*?)\*/g, '<em>$1</em>')
+  
+  content = content.replace(/`([^`]+)`/g, '<code>$1</code>')
+  
+  content = content.replace(/^- (.*$)/gim, '<li>$1</li>')
+  content = content.replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
+  
   content = content.replace(/\n/g, '<br>')
-  content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+  
+  content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  
   return content
 })
 </script>
@@ -95,19 +112,70 @@ const formattedContent = computed(() => {
   color: white;
 }
 
-.message-content p {
-  margin: 0;
+.markdown-content {
   line-height: 1.6;
   font-size: 14px;
   word-break: break-word;
 }
 
-.message-content p a {
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin: 8px 0;
+  font-weight: 600;
+}
+
+.markdown-content h1 {
+  font-size: 18px;
+}
+
+.markdown-content h2 {
+  font-size: 16px;
+}
+
+.markdown-content h3 {
+  font-size: 14px;
+}
+
+.markdown-content strong {
+  font-weight: 600;
+}
+
+.markdown-content em {
+  font-style: italic;
+}
+
+.markdown-content code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.is-user .markdown-content code {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.markdown-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.markdown-content li {
+  margin: 4px 0;
+}
+
+.markdown-content a {
   color: #667eea;
   text-decoration: none;
 }
 
-.is-user .message-content p a {
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.is-user .markdown-content a {
   color: #fff;
   text-decoration: underline;
 }
