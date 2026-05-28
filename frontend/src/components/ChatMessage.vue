@@ -5,6 +5,25 @@
       <span v-else>🤖</span>
     </div>
     <div class="message-content">
+      <div v-if="message.toolName" class="tool-info">
+        <div class="tool-status" :class="{ 'is-loading': !message.toolResult }">
+          <span class="tool-icon" v-if="!message.toolResult">⚙️</span>
+          <span class="tool-icon" v-else>✅</span>
+          <span class="tool-name">{{ getToolDisplayName(message.toolName) }}</span>
+          <span v-if="!message.toolResult" class="tool-loading">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </span>
+        </div>
+        <div v-if="message.toolParams && !message.toolResult" class="tool-params">
+          <code>{{ formatParams(message.toolParams) }}</code>
+        </div>
+        <div v-if="message.toolResult && message.toolResult !== '工具执行完成'" class="tool-result">
+          <div class="result-label">查询结果：</div>
+          <div class="result-content" v-html="renderMarkdown(message.toolResult)"></div>
+        </div>
+      </div>
       <div v-if="message.thinking && !message.finished" class="thinking">
         <span class="thinking-icon">🧠</span>
         <span>{{ message.thinking }}</span>
@@ -39,35 +58,56 @@ const toolNames = {
   get_current_time: '时间查询',
   weather: '天气查询',
   search: '联网搜索',
-  time: '时间查询'
+  time: '时间查询',
+  time_query: '时间查询',
+  search_web: '联网搜索'
 }
 
 const getToolName = (toolUsed) => {
   return toolNames[toolUsed] || toolUsed
 }
 
+const getToolDisplayName = (toolName) => {
+  return toolNames[toolName] || toolName
+}
+
+const formatParams = (params) => {
+  if (typeof params === 'string') {
+    try {
+      params = JSON.parse(params)
+    } catch {
+      return params
+    }
+  }
+  return JSON.stringify(params, null, 2)
+}
+
+const renderMarkdown = (content) => {
+  let text = content || ''
+  
+  text = text.replace(/\\n/g, '\n')
+  
+  text = text.replace(/^### (.*$)/gim, '<h3>$1</h3>')
+  text = text.replace(/^## (.*$)/gim, '<h2>$1</h2>')
+  text = text.replace(/^# (.*$)/gim, '<h1>$1</h1>')
+  
+  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  text = text.replace(/\*(.*?)\*/g, '<em>$1</em>')
+  
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>')
+  
+  text = text.replace(/^- (.*$)/gim, '<li>$1</li>')
+  text = text.replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
+  
+  text = text.replace(/\n/g, '<br>')
+  
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  
+  return text
+}
+
 const renderedContent = computed(() => {
-  let content = props.message.content || ''
-  
-  content = content.replace(/\\n/g, '\n')
-  
-  content = content.replace(/^### (.*$)/gim, '<h3>$1</h3>')
-  content = content.replace(/^## (.*$)/gim, '<h2>$1</h2>')
-  content = content.replace(/^# (.*$)/gim, '<h1>$1</h1>')
-  
-  content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  content = content.replace(/\*(.*?)\*/g, '<em>$1</em>')
-  
-  content = content.replace(/`([^`]+)`/g, '<code>$1</code>')
-  
-  content = content.replace(/^- (.*$)/gim, '<li>$1</li>')
-  content = content.replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
-  
-  content = content.replace(/\n/g, '<br>')
-  
-  content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-  
-  return content
+  return renderMarkdown(props.message.content)
 })
 </script>
 
@@ -110,6 +150,93 @@ const renderedContent = computed(() => {
 .is-user .message-content {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+}
+
+.tool-info {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 12px;
+  border-left: 3px solid #667eea;
+}
+
+.is-user .tool-info {
+  background: rgba(255, 255, 255, 0.15);
+  border-left-color: rgba(255, 255, 255, 0.5);
+}
+
+.tool-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.is-user .tool-status {
+  color: white;
+}
+
+.tool-icon {
+  font-size: 16px;
+}
+
+.tool-loading {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.tool-params {
+  font-size: 12px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.is-user .tool-params {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.tool-params code {
+  font-family: 'Monaco', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tool-result {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+}
+
+.is-user .tool-result {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.result-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #667eea;
+  margin-bottom: 4px;
+}
+
+.is-user .result-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.result-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.is-user .result-content {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .markdown-content {

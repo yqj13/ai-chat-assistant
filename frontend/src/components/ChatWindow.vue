@@ -30,12 +30,23 @@ import ChatMessage from './ChatMessage.vue'
 import ChatInput from './ChatInput.vue'
 import axios from 'axios'
 
+const API_BASE_URL = 'http://localhost:8000'
+const USER_ID = `user_${Date.now()}`
+
+const MESSAGE_TYPES = {
+  TEXT: 0,
+  TOOL_START: 1,
+  TOOL_END: 2,
+  SEARCH_START: 3,
+  SEARCH_END: 4
+}
+
 const messages = ref([])
 const isLoading = ref(false)
 const isOnline = ref(false)
 const messagesContainer = ref(null)
 const eventSource = ref(null)
-const contextId = ref(null)
+const contextId = ref(`context_${Date.now()}`)
 const lastMessageId = ref(null)
 
 const scrollToBottom = () => {
@@ -50,7 +61,7 @@ watch(messages, scrollToBottom, { deep: true })
 
 const checkOnlineStatus = async () => {
   try {
-    await axios.get('http://localhost:8000/health')
+    await axios.get(`${API_BASE_URL}/`)
     isOnline.value = true
   } catch {
     isOnline.value = false
@@ -64,45 +75,98 @@ const closeEventSource = () => {
   }
 }
 
+const handleToolMessage = (botIndex, data) => {
+  try {
+    const contentObj = JSON.parse(data.content)
+    
+    if (data.type === MESSAGE_TYPES.TOOL_START || data.type === MESSAGE_TYPES.SEARCH_START) {
+      messages.value[botIndex].thinking = `正在调用工具: ${contentObj.tool}`
+      messages.value[botIndex].toolParams = contentObj.params
+      messages.value[botIndex].toolName = contentObj.tool
+    } else if (data.type === MESSAGE_TYPES.TOOL_END || data.type === MESSAGE_TYPES.SEARCH_END) {
+      messages.value[botIndex].toolResult = contentObj.result
+    }
+  } catch (error) {
+    console.error('解析工具消息失败:', error)
+  }
+}
+
 const handleSend = async (text) => {
   messages.value.push({ role: 'user', content: text })
   
+  const botIndex = messages.value.length
   messages.value.push({
     role: 'assistant',
     content: '',
-    thinking: '正在分析问题...',
+    thinking: '正在思考...',
     finished: false,
-    messageId: null
+    messageId: null,
+    toolUsed: null,
+    toolParams: null,
+    toolResult: null
   })
   
   isLoading.value = true
   
+  closeEventSource()
+  
   try {
-    const response = await axios.post('http://localhost:8000/v1/chat/completions', {
-      model: 'qwen-7b-chat',
-      messages: [{ role: 'user', content: text }],
-      temperature: 0.3,
+    const response = await axios.post(`${API_BASE_URL}/api/chat`, {
+      content: text,
+      uid: USER_ID,
       context_id: contextId.value,
       last_message_id: lastMessageId.value
     })
     
-    const botIndex = messages.value.length - 1
-    const reply = response.data.choices[0].message.content
+    const { message_id } = response.data
     
-    messages.value[botIndex].content = reply
-    messages.value[botIndex].finished = true
-    messages.value[botIndex].thinking = ''
-    messages.value[botIndex].messageId = response.data.id
+    messages.value[botIndex].messageId = message_id
+    messages.value[botIndex].thinking = '正在接收响应...'
     
-    if (response.data.choices[0].finish_reason === 'tool_calls') {
-      messages.value[botIndex].toolUsed = response.data.choices[0].message.tool_calls?.[0]?.function.name
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    const eventSourceUrl = `${API_BASE_URL}/api/stream/${USER_ID}/${message_id}`
+    eventSource.value = new EventSource(eventSourceUrl)
+    
+    eventSource.value.onmessage = (event) => {
+      try {
+        const rawData = event.data
+        
+        if (rawData.startsWith('data: ')) {
+          const jsonStr = rawData.substring(6).trim()
+          
+          if (!jsonStr) return
+          
+          const data = JSON.parse(jsonStr)
+          
+          if (data.type !== undefined && data.type !== MESSAGE_TYPES.TEXT) {
+            handleToolMessage(botIndex, data)
+          } else if (data.content) {
+            messages.value[botIndex].thinking = ''
+            messages.value[botIndex].content += data.content
+          }
+          
+          if (data.status && data.finish_reason) {
+            messages.value[botIndex].finished = true
+            messages.value[botIndex].thinking = ''
+            lastMessageId.value = message_id
+            closeEventSource()
+          }
+        }
+      } catch (error) {
+        console.error('解析SSE消息失败:', error, '原始数据:', event.data)
+      }
     }
     
-    if (response.data.context_id) {
-      contextId.value = response.data.context_id
+    eventSource.value.onerror = (error) => {
+      console.error('SSE连接错误:', error)
+      messages.value[botIndex].finished = true
+      messages.value[botIndex].thinking = ''
+      if (!messages.value[botIndex].content) {
+        messages.value[botIndex].content = '抱歉，连接出现问题，请稍后重试。'
+      }
+      closeEventSource()
     }
-    
-    lastMessageId.value = response.data.id
     
   } catch (error) {
     console.error('API调用失败:', error)
@@ -115,107 +179,14 @@ const handleSend = async (text) => {
   }
 }
 
-const handleSendStream = async (text) => {
-  messages.value.push({ role: 'user', content: text })
-  
-  const botIndex = messages.value.length
-  messages.value.push({
-    role: 'assistant',
-    content: '',
-    thinking: '正在分析问题...',
-    finished: false,
-    messageId: null
-  })
-  
-  isLoading.value = true
-  
-  closeEventSource()
-  
-  try {
-    const response = await fetch('http://localhost:8000/v1/chat/completions/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'qwen-7b-chat',
-        messages: [{ role: 'user', content: text }],
-        temperature: 0.3,
-        context_id: contextId.value,
-        last_message_id: lastMessageId.value
-      })
-    })
-    
-    if (!response.body) {
-      throw new Error('Response body is null')
-    }
-    
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    
-    while (true) {
-      const { done, value } = await reader.read()
-      
-      if (done) {
-        break
-      }
-      
-      const text = decoder.decode(value, { stream: true })
-      const lines = text.split('\n')
-      
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const data = JSON.parse(line.replace(/^data: /, ''))
-            
-            if (data.choices && data.choices[0] && data.choices[0].delta) {
-              const delta = data.choices[0].delta
-              
-              if (delta.content) {
-                messages.value[botIndex].thinking = ''
-                messages.value[botIndex].content += delta.content
-              }
-              
-              if (data.context_id) {
-                contextId.value = data.context_id
-              }
-              
-              if (data.message_id) {
-                messages.value[botIndex].messageId = data.message_id
-                lastMessageId.value = data.message_id
-              }
-              
-              if (data.choices[0].finish_reason === 'stop') {
-                messages.value[botIndex].finished = true
-              }
-            }
-          } catch (e) {
-            console.error('解析流式消息失败:', e)
-          }
-        }
-      }
-    }
-    
-    messages.value[botIndex].finished = true
-    
-  } catch (error) {
-    console.error('流式请求失败:', error)
-    const botIndex = messages.value.length - 1
-    messages.value[botIndex].content = '抱歉，流式请求失败，请稍后重试。'
-    messages.value[botIndex].finished = true
-    messages.value[botIndex].thinking = ''
-  } finally {
-    isLoading.value = false
-  }
-}
-
 onMounted(() => {
   checkOnlineStatus()
-  setInterval(checkOnlineStatus, 5000)
-})
-
-onUnmounted(() => {
-  closeEventSource()
+  const interval = setInterval(checkOnlineStatus, 5000)
+  
+  onUnmounted(() => {
+    clearInterval(interval)
+    closeEventSource()
+  })
 })
 </script>
 
