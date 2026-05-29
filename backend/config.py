@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     
     WTTR_API_URL: str = "https://wttr.in"
-    SO_SEARCH_URL: str = "https://www.so.com"
+    
+    BOCHA_API_URL: str = "https://api.bocha.cn/v1/web-search"
+    BOCHA_API_KEY: str = "sk-05ee5e6c56614bb2a3f8eb263150f975"
     
     class Config:
         env_file = ".env"

@@ -1,5 +1,8 @@
 <script setup>
 import { computed } from 'vue'
+import { Robot2Icon } from 'tdesign-icons-vue-next'
+
+
 
 const props = defineProps({
   collapsed: Boolean,
@@ -35,21 +38,11 @@ const formatTime = (timestamp) => {
   >
     <div class="sidebar-header">
       <div class="logo" v-if="!collapsed">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M8 15s1.5-2 4-2 4 2 4 2"/>
-          <path d="M9 9h.01"/>
-          <path d="M15 9h.01"/>
-        </svg>
-        <span>AI Assistant</span>
+       <robot-2-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
+        <span>AI 聊天助手</span>
       </div>
       <div class="logo-mini" v-else>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M8 15s1.5-2 4-2 4 2 4 2"/>
-          <path d="M9 9h.01"/>
-          <path d="M15 9h.01"/>
-        </svg>
+        <robot-2-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
       </div>
     </div>
     
@@ -143,6 +136,7 @@ const formatTime = (timestamp) => {
 }
 
 .logo {
+
   display: flex;
   align-items: center;
   gap: 12px;

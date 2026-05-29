@@ -13,13 +13,8 @@
           <details open>
             <summary>💭 思考过程</summary>
             <div class="reasoning-content">
-              <StreamMarkdown
-                :content="msg.reasoningContent"
-                :typing="!msg.finished && isStreaming"
-                :speed="15"
-                :cursor="false"
-                @step="scrollToBottom"
-              />
+              <StreamMarkdown :content="msg.reasoningContent" :typing="!msg.finished && isStreaming" :speed="15"
+                :cursor="false" @step="scrollToBottom" />
             </div>
           </details>
         </div>
@@ -33,7 +28,7 @@
 
         <!-- 助手消息 -->
         <div v-if="msg.content && msg.role === 'assistant'" class="message-content">
-          <StreamMarkdown
+          <!-- <StreamMarkdown
             :content="msg.content"
             :typing="!msg.finished && isStreaming && msg.id === currentStreamingId"
             :speed="25"
@@ -43,8 +38,9 @@
             :enable-mermaid="true"
             @complete="handleComplete(msg)"
             @step="scrollToBottom"
-          />
-          
+          /> -->
+          <t-chat-markdown :content="msg.content" :options="options" />
+
         </div>
 
         <!-- 用户消息 -->
@@ -59,6 +55,7 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
 import StreamMarkdown from './StreamMarkdown.vue'
+// import 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
 
 const props = defineProps({
   messages: {
@@ -76,6 +73,18 @@ const props = defineProps({
 })
 
 const chatMessages = ref(null)
+
+const options = ref({
+  engine: {
+    syntax: {
+    mathBlock: {
+      engine: 'KaTeX',
+    },
+    inlineMath: {
+      engine: 'KaTeX',
+    },
+  }
+},})
 
 /**
  * 滚动到聊天框底部
@@ -172,7 +181,7 @@ defineExpose({
 }
 
 .message-item.user .message-bubble {
-  
+
   border-bottom-right-radius: 6px;
 }
 
@@ -216,9 +225,13 @@ defineExpose({
 }
 
 @keyframes bounce {
-  0%, 80%, 100% {
+
+  0%,
+  80%,
+  100% {
     transform: scale(0);
   }
+
   40% {
     transform: scale(1);
   }

@@ -110,57 +110,84 @@ def get_weather(province: str, city: str) -> str:
     return "## 天气信息\n\n- 城市: " + city + "\n- 省份: " + province + "\n- 温度: 约25°C\n- 天气: 晴朗\n- 湿度: 50%\n- 风向: 微风"
 
 
+from config import settings
+
 @tool("web_search", args_schema=SearchInput)
 def search_web(query: str, num_results: int = 3) -> str:
     """在互联网上搜索信息。输入搜索关键词，返回相关搜索结果。"""
-    
     try:
-        url = f"https://cn.apihz.cn/api/wangzhan/soubaiduxg.php?id=10017282&key=bb7b534897137b356262de47aaef6559&words={requests.utils.quote(query)}&tn=98010089_dg&ck="
-        response = requests.get(url, timeout=15)
+        url = settings.BOCHA_API_URL
+        api_key = settings.BOCHA_API_KEY
+        
+        if not api_key:
+            return "## 搜索结果\n\n- 未配置博查AI API Key，请在 .env 文件中设置 BOCHA_API_KEY"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        data = {
+            "query": query,
+            "freshness": "noLimit",
+            "summary": True,
+            "count": num_results
+        }
+        
+        response = requests.post(url, headers=headers, json=data, timeout=15)
         
         if response.status_code == 200:
             try:
-                data = response.json()
-                if data.get("code") == 200:
-                    datas = data.get("datas", [])
-                    if datas:
-                        results = []
-                        for i, item in enumerate(datas[:min(num_results, len(datas))], 1):
-                            results.append(f"- [{i}] {item}")
-                        result_str = "\n".join(results)
-                        return "## 搜索结果\n\n" + result_str
-            except ValueError:
-                pass
-            
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-            results = []
-            
-            for item in soup.find_all('div', class_='res-list')[:min(num_results, 3)]:
-                title_tag = item.find('h3')
-                link_tag = item.find('a')
-                desc_tag = item.find('p')
+                response_data = response.json()
+                results = []
                 
-                if title_tag and link_tag:
-                    title = title_tag.get_text(strip=True)
-                    link = link_tag.get('href', '')
-                    desc = desc_tag.get_text(strip=True) if desc_tag else ''
-                    results.append("- [" + title + "](" + link + ")\n  " + desc[:80] + "...")
-            
-            if results:
-                result_str = "\n\n".join(results)
-                return "## 搜索结果\n\n" + result_str
-    except:
-        pass
-    
-    if query in mock_results:
-        results = []
-        for item in mock_results[query][:min(num_results, 3)]:
-            results.append("- [" + item["title"] + "](" + item["url"] + ")\n  " + item["desc"][:80] + "...")
-        result_str = "\n\n".join(results)
-        return "## 搜索结果\n\n" + result_str
-    
-    return "## 搜索结果\n\n- 搜索到关于 '" + query + "' 的相关信息\n- 由于网络限制，显示部分摘要内容"
+                if response_data.get("code") == 200 and "data" in response_data:
+                    data = response_data["data"]
+                    if "webPages" in data and "value" in data["webPages"]:
+                        web_pages = data["webPages"]["value"]
+                        for i, item in enumerate(web_pages[:min(num_results, len(web_pages))], 1):
+                            title = item.get("name", "")
+                            link = item.get("url", "")
+                            snippet = item.get("snippet", "")
+                            summary_text = item.get("summary", "")
+                            site_name = item.get("siteName", "")
+                            date_published = item.get("datePublished", "")
+                            
+                            if title and link:
+                                result_item = f"- [{title}]({link})"
+                                if site_name:
+                                    result_item += f" ({site_name})"
+                                if date_published:
+                                    result_item += f" · {date_published[:10]}"
+                                if snippet:
+                                    result_item += f"\n  {snippet[:120]}..."
+                                elif summary_text:
+                                    result_item += f"\n  {summary_text[:120]}..."
+                                results.append(result_item)
+                
+                if results:
+                    total_matches = data["webPages"].get("totalEstimatedMatches", 0)
+                    result_str = "\n\n".join(results)
+                    return f"## 搜索结果\n\n共找到约 {total_matches} 条结果\n\n{result_str}"
+                else:
+                    return "## 搜索结果\n\n- 未找到相关结果"
+            except ValueError:
+                return "## 搜索结果\n\n- 解析响应失败"
+            except KeyError as e:
+                return f"## 搜索结果\n\n- 响应结构异常: {str(e)}"
+        else:
+            error_msg = f"请求失败，状态码: {response.status_code}"
+            try:
+                error_data = response.json()
+                if "msg" in error_data:
+                    error_msg += f" - {error_data['msg']}"
+            except:
+                pass
+            return f"## 搜索结果\n\n- {error_msg}"
+    except requests.exceptions.RequestException as e:
+        return f"## 搜索结果\n\n- 请求异常: {str(e)}"
+    except Exception as e:
+        return f"## 搜索结果\n\n- 搜索异常: {str(e)}"
 
 
 @tool("calculator", args_schema=CalculatorInput)

@@ -128,8 +128,17 @@ class ChatService:
 
             current_content = ""
 
+            system_prompt = """
+            你是一个专业的AI助手，能够处理准确的答案。回答准确的答案。回答时返回markdown格式。
+           当涉及数学公式时，请使用KaTeX格式输出。行内公式使用 $公式$ 格式，块级公式使用 $$公式$$ 格式。
+例如：行内公式 $E=mc^2$，块级公式：
+$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+"""
             async for event in self.agent.astream_events(
-                {"messages": [{"role": "user", "content": input_text}]},
+                {"messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": input_text}
+                ]},
                 config=config,
                 version="v1"
             ):

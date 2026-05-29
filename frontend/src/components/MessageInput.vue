@@ -1,9 +1,14 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { Button as TButton } from 'tdesign-vue-next';
+import { InternetIcon, SystemSumIcon } from 'tdesign-icons-vue-next'
 
 const props = defineProps({
   disabled: Boolean
 })
+
+const activeR1 = ref(false)
+const activeSearch = ref(false)
 
 const emit = defineEmits(['send'])
 
@@ -12,8 +17,12 @@ const textareaRef = ref(null)
 
 const handleSend = () => {
   if (!inputText.value.trim() || props.disabled) return
-  
+
   emit('send', inputText.value)
+  inputText.value = ''
+}
+
+const onStop = () => {
   inputText.value = ''
 }
 
@@ -34,31 +43,29 @@ watch(() => props.disabled, (newVal) => {
 <template>
   <div class="message-input-container">
     <div class="input-wrapper">
-      <textarea
-        ref="textareaRef"
-        v-model="inputText"
-        class="message-input"
-        :disabled="disabled"
-        placeholder="输入消息，按 Enter 发送，Shift+Enter 换行"
-        rows="1"
-        @keydown="handleKeydown"
-      ></textarea>
-      
-      <button 
-        class="send-btn"
-        :disabled="!inputText.trim() || disabled"
-        @click="handleSend"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-      </button>
-    </div>
-    
-    <div class="input-footer">
-      <span class="tip">支持 Markdown 格式</span>
+      <t-chat-sender v-model="inputText" :loading="loading" :textarea-props="{
+        placeholder: '请输入消息...',
+      }" @send="handleSend" @stop="onStop" @keydown="handleKeydown">
+        <template #footer-prefix>
+          <div class="block">
+
+            <t-button variant="outline" shape="round" :theme="activeR1 ? 'primary' : 'default'"
+              @click="activeR1 = !activeR1">
+              <template #icon>
+                <SystemSumIcon />
+              </template>
+              深度思考
+            </t-button>
+            <t-button variant="outline" :theme="activeSearch ? 'primary' : 'default'" shape="round"
+              @click="activeSearch = !activeSearch">
+              <template #icon>
+                <internet-icon />
+              </template>
+              联网查询
+            </t-button>
+          </div>
+        </template>
+      </t-chat-sender>
     </div>
   </div>
 </template>
@@ -146,12 +153,18 @@ watch(() => props.disabled, (newVal) => {
   color: #999;
 }
 
+.block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 768px) {
   .message-input-container {
     padding: 12px 16px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
-  
+
   .input-wrapper {
     gap: 8px;
   }
