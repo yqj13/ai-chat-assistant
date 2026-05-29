@@ -1,5 +1,5 @@
 <script setup>
-import { ref, provide, computed, onMounted, onUnmounted } from 'vue'
+import { ref, provide, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import Sidebar from '../components/Sidebar.vue'
 import ChatMessages from '../components/ChatMessages.vue'
 import MessageInput from '../components/MessageInput.vue'
@@ -9,14 +9,51 @@ const currentConversation = ref(null)
 const messages = ref([])
 const isStreaming = ref(false)
 const currentMessageId = ref(null)
+const lastSequence = ref(0)
 const uid = ref('user_' + Date.now())
+
+const eventSource = ref(null)
+
+// ✅ 新增：记录占位消息的临时 id，用于在 SSE 中匹配
+const pendingPlaceholderId = ref(null)
+
+// 重连策略
+const reconnectAttempts = ref(0)
+const maxReconnectAttempts = 5
+const reconnectDelay = ref(1000)
+const reconnectTimer = ref(null)
+
+const localStorageKey = computed(() => `sse_state_${uid.value}`)
+
+const getStoredState = () => {
+  try {
+    const data = localStorage.getItem(localStorageKey.value)
+    return data ? JSON.parse(data) : null
+  } catch (e) {
+    console.error('读取 localStorage 失败:', e)
+    return null
+  }
+}
+
+const setStoredState = (messageId, sequence) => {
+  try {
+    if (messageId) {
+      localStorage.setItem(localStorageKey.value, JSON.stringify({
+        messageId,
+        sequence: sequence || 0
+      }))
+    } else {
+      localStorage.removeItem(localStorageKey.value)
+    }
+  } catch (e) {
+    console.error('写入 localStorage 失败:', e)
+  }
+}
 
 const sidebarWidth = computed(() => sidebarCollapsed.value ? 64 : 260)
 
 const conversations = ref([
-  { id: 'conv1', title: '新对话', messages: [], lastMessage: '', timestamp: Date.now() },
-  { id: 'conv2', title: '技术咨询', messages: [], lastMessage: '如何使用Python进行数据分析？', timestamp: Date.now() - 3600000 },
-  { id: 'conv3', title: '项目讨论', messages: [], lastMessage: '关于前端架构的一些想法', timestamp: Date.now() - 7200000 }
+  { id: 'conv1', title: '新对话', messages: [], lastMessage: '', timestamp: Date.now() }
 ])
 
 const toggleSidebar = () => {
@@ -40,70 +77,116 @@ const createNewConversation = () => {
   selectConversation(newConv)
 }
 
+const findMessageIndex = (messageId) => {
+  return messages.value.findIndex(m => m.id === messageId)
+}
+
 const handleSendMessage = async (content) => {
   if (!content.trim()) return
-  
+
   isStreaming.value = true
-  
+
+  // 1. 添加用户消息
   const userMessage = {
     id: 'msg_' + Date.now(),
     role: 'user',
     content: content.trim(),
     timestamp: Date.now()
   }
-  
   messages.value.push(userMessage)
-  
+
+  // 2. 立即添加一条空的助手消息（占位）
+  const placeholderMessageId = 'pending_' + Date.now()
+  pendingPlaceholderId.value = placeholderMessageId  // ✅ 记录临时 id
+
+  const assistantMessage = {
+    id: placeholderMessageId,
+    role: 'assistant',
+    content: '',
+    reasoningContent: '',
+    timestamp: Date.now(),
+    type: 0,
+    loading: true,
+    finished: false
+  }
+  messages.value.push(assistantMessage)
+
   try {
     const response = await fetch('http://localhost:8000/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: content.trim(),
         uid: uid.value,
-        context_id: currentConversation.value?.id || uid.value,
-        last_message_id: currentMessageId.value
+        context_id: currentConversation.value?.id || null,
+        last_message_id: null
       })
     })
-    
-    const data = await response.json()
-    currentMessageId.value = data.message_id
-    
-    await listenToStream(data.message_id)
-    
+
+    if (response.ok) {
+      const result = await response.json()
+      currentMessageId.value = result.message_id
+      lastSequence.value = 0
+      setStoredState(result.message_id, 0)
+
+      // 3. 替换占位消息的 id
+      const index = findMessageIndex(placeholderMessageId)
+      if (index !== -1) {
+        messages.value[index] = {
+          ...messages.value[index],
+          id: result.message_id
+        }
+      }
+      pendingPlaceholderId.value = null  // ✅ 清除临时 id
+
+      console.log(`发送消息成功，message_id: ${result.message_id}`)
+
+      // 确保 SSE 连接存在
+      if (!eventSource.value || eventSource.value.readyState === EventSource.CLOSED) {
+        createStreamConnection()
+      }
+    } else {
+      const index = findMessageIndex(placeholderMessageId)
+      if (index !== -1) {
+        messages.value[index] = {
+          ...messages.value[index],
+          content: '请求失败，请稍后重试',
+          loading: false,
+          finished: true
+        }
+      }
+      pendingPlaceholderId.value = null
+      isStreaming.value = false
+    }
   } catch (error) {
     console.error('发送消息失败:', error)
-    const errorMessage = {
-      id: 'msg_' + Date.now(),
-      role: 'assistant',
-      content: '发送消息失败，请稍后重试',
-      timestamp: Date.now()
+    const index = findMessageIndex(placeholderMessageId)
+    if (index !== -1) {
+      messages.value[index] = {
+        ...messages.value[index],
+        content: '网络连接失败，请检查网络后重试',
+        loading: false,
+        finished: true
+      }
     }
-    messages.value.push(errorMessage)
+    pendingPlaceholderId.value = null
     isStreaming.value = false
   }
 }
 
 const safeJsonParse = (input, fallback = null) => {
   if (!input) return fallback
-  
   try {
     let data = input
-    
     if (typeof data === 'string') {
       data = data.trim()
-      
       if (data.startsWith('data:')) {
         data = data.substring(5).trim()
       }
-      
       if (data.startsWith('{') || data.startsWith('[')) {
         return JSON.parse(data)
       }
     }
-    
     return fallback
   } catch (error) {
     console.warn('JSON 解析失败:', error)
@@ -111,69 +194,257 @@ const safeJsonParse = (input, fallback = null) => {
   }
 }
 
-const listenToStream = async (messageId) => {
-  return new Promise((resolve) => {
-    const eventSource = new EventSource(`http://localhost:8000/api/stream/${uid.value}/${messageId}`)
-    
-    let assistantMessage = null
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const data = safeJsonParse(event.data)
-        
-        if (!data) {
-          return
+const resetReconnectState = () => {
+  reconnectAttempts.value = 0
+  reconnectDelay.value = 1000
+  if (reconnectTimer.value) {
+    clearTimeout(reconnectTimer.value)
+    reconnectTimer.value = null
+  }
+}
+
+const scheduleReconnect = () => {
+  if (reconnectAttempts.value >= maxReconnectAttempts) {
+    console.error('已达到最大重连次数，停止尝试')
+    isStreaming.value = false
+
+    if (currentMessageId.value) {
+      const index = findMessageIndex(currentMessageId.value)
+      if (index !== -1) {
+        messages.value[index] = {
+          ...messages.value[index],
+          content: messages.value[index].content + '\n\n[连接中断，回复未完成]',
+          loading: false,
+          finished: true
         }
-        
-        if (!assistantMessage) {
-          assistantMessage = {
-            id: data.message_id || messageId,
-            role: 'assistant',
-            content: '',
-            timestamp: Date.now()
-          }
-          messages.value.push(assistantMessage)
-        }
-        
-        if (data.content) {
-          assistantMessage.content += data.content
-        }
-        
-        if (data.status === true) {
-          eventSource.close()
-          isStreaming.value = false
-          if (currentConversation.value) {
-            currentConversation.value.lastMessage = assistantMessage.content.substring(0, 50) + (assistantMessage.content.length > 50 ? '...' : '')
-            currentConversation.value.timestamp = Date.now()
-            currentConversation.value.messages = messages.value
-          }
-          resolve()
-        }
-      } catch (error) {
-        console.error('解析消息失败:', error)
       }
     }
-    
-    eventSource.onerror = (error) => {
-      console.error('Stream error:', error)
-      eventSource.close()
-      isStreaming.value = false
-      resolve()
+    return
+  }
+
+  const delay = reconnectDelay.value
+  console.log(`尝试重连 (第 ${reconnectAttempts.value + 1} 次)，等待 ${delay}ms`)
+
+  reconnectTimer.value = setTimeout(() => {
+    reconnectAttempts.value++
+    reconnectDelay.value = Math.min(reconnectDelay.value * 2, 30000)
+    createStreamConnection()
+  }, delay)
+}
+
+const createStreamConnection = () => {
+  if (eventSource.value) {
+    eventSource.value.close()
+    eventSource.value = null
+  }
+
+  let url = `http://localhost:8000/api/stream/${uid.value}`
+  const params = new URLSearchParams()
+
+  const storedState = getStoredState()
+  const msgId = currentMessageId.value || storedState?.messageId
+  const seq = lastSequence.value || storedState?.sequence || 0
+
+  if (msgId) {
+    params.set('message_id', msgId)
+    params.set('last_sequence', seq.toString())
+    currentMessageId.value = msgId
+    lastSequence.value = seq
+    console.log(`连接 SSE，message_id: ${msgId}, last_sequence: ${seq}`)
+  }
+
+  const queryString = params.toString()
+  if (queryString) {
+    url += `?${queryString}`
+  }
+
+  eventSource.value = new EventSource(url)
+
+  eventSource.value.onopen = () => {
+    console.log('SSE 连接已建立')
+    resetReconnectState()
+  }
+
+  eventSource.value.onmessage = (event) => {
+    try {
+      const data = safeJsonParse(event.data)
+      if (!data) return
+
+      // ✅ 忽略没有 message_id 的数据（心跳等）
+      if (!data.message_id) return
+
+      // 更新 sequence
+      if (data.sequence) {
+        lastSequence.value = data.sequence
+        setStoredState(data.message_id, data.sequence)
+      }
+
+      // 消息完成
+      if (data.status === true || data.finish_status === true) {
+        isStreaming.value = false
+        currentMessageId.value = null
+        lastSequence.value = 0
+        setStoredState(null, 0)
+
+
+        const index = findMessageIndex(data.message_id)
+        if (index !== -1) {
+          messages.value[index] = {
+            ...messages.value[index],
+            loading: false,
+            finished: true
+          }
+
+          if (currentConversation.value) {
+            currentConversation.value.lastMessage = messages.value[index].content.substring(0, 50)
+            currentConversation.value.timestamp = Date.now()
+            currentConversation.value.messages = [...messages.value]
+          }
+          console.log('消息渲染:', messages.value[index])
+        }
+        return
+      }
+
+      if (data.message_id) {
+        currentMessageId.value = data.message_id
+        isStreaming.value = true
+      }
+
+      // ✅ 核心修复：查找消息时，同时检查正式 id 和占位 id
+      let index = findMessageIndex(data.message_id)
+
+      // 如果通过 message_id 找不到，检查是否有正在等待的占位消息
+      // （处理 SSE 在 fetch 返回前就推送数据的竞态情况）
+      if (index === -1 && pendingPlaceholderId.value) {
+        index = findMessageIndex(pendingPlaceholderId.value)
+        if (index !== -1) {
+          // 将占位消息的 id 更新为真实 message_id
+          messages.value[index] = {
+            ...messages.value[index],
+            id: data.message_id
+          }
+          pendingPlaceholderId.value = null
+          currentMessageId.value = data.message_id
+        }
+      }
+
+      // ✅ 只有在断点续传场景（无占位消息）才创建新消息
+      if (index === -1 && data.message_id) {
+        // 再次确认：确保不是因为占位消息尚未创建
+        // 只有当没有 pending 状态时才新建（真正的断点续传场景）
+        if (!pendingPlaceholderId.value) {
+          messages.value.push({
+            id: data.message_id,
+            role: 'assistant',
+            content: '',
+            reasoningContent: '',
+            timestamp: Date.now(),
+            type: data.type || 0,
+            loading: true,
+            finished: false
+          })
+          index = messages.value.length - 1
+        } else {
+          // 有 pending 但 id 不匹配，说明是旧消息的残留数据，忽略
+          console.warn(`收到未知 message_id: ${data.message_id}，当前 pending: ${pendingPlaceholderId.value}，忽略`)
+          return
+        }
+      }
+
+      if (index === -1) return
+
+      const existingMessage = messages.value[index]
+
+      // 收到内容时关闭 loading
+      let newLoading = existingMessage.loading
+      if (newLoading && (data.content || data.reasoning_content)) {
+        newLoading = false
+      }
+
+      // 处理内容
+      let newContent = existingMessage.content
+      let newReasoningContent = existingMessage.reasoningContent || ''
+      let newToolCalls = existingMessage.toolCalls ? [...existingMessage.toolCalls] : []
+
+      if (data.type === 0 || data.type === undefined) {
+        if (data.content) {
+          newContent += data.content
+        }
+        if (data.reasoning_content) {
+          newReasoningContent += data.reasoning_content
+        }
+      } else {
+        if (data.content) {
+          try {
+            const toolData = JSON.parse(data.content)
+            newToolCalls.push({
+              type: data.type,
+              data: toolData,
+              timestamp: Date.now()
+            })
+          } catch (e) {
+            newContent += data.content
+          }
+        }
+      }
+
+      // 替换整个对象触发响应式
+      messages.value[index] = {
+        ...existingMessage,
+        content: newContent,
+        reasoningContent: newReasoningContent,
+        toolCalls: newToolCalls,
+        loading: newLoading
+      }
+
+    } catch (error) {
+      console.error('处理消息失败:', error)
     }
-  })
+  }
+
+  eventSource.value.onerror = (error) => {
+    console.error('SSE 连接错误:', error)
+
+    if (eventSource.value) {
+      eventSource.value.close()
+      eventSource.value = null
+    }
+
+    if (isStreaming.value && currentMessageId.value) {
+      setStoredState(currentMessageId.value, lastSequence.value)
+      scheduleReconnect()
+    }
+  }
 }
 
 onMounted(() => {
+  // ✅ 修复：只恢复状态，不创建占位消息
+  // 占位消息应在 SSE 收到数据时按需创建（断点续传场景）
+  const storedState = getStoredState()
+  if (storedState && storedState.messageId) {
+    console.log('检测到未完成的对话，尝试恢复')
+    isStreaming.value = true
+    currentMessageId.value = storedState.messageId
+    lastSequence.value = storedState.sequence || 0
+    // ✅ 不再在这里 push 占位消息
+    // SSE onmessage 中 findMessageIndex 找不到时会自动创建
+  }
+
+  createStreamConnection()
+
   if (conversations.value.length > 0) {
     selectConversation(conversations.value[0])
   }
 })
 
 onUnmounted(() => {
-  if (currentMessageId.value) {
-    fetch(`http://localhost:8000/api/user/${uid.value}`, {
-      method: 'DELETE'
-    }).catch(() => {})
+  if (eventSource.value) {
+    eventSource.value.close()
+    eventSource.value = null
+  }
+  if (reconnectTimer.value) {
+    clearTimeout(reconnectTimer.value)
+    reconnectTimer.value = null
   }
 })
 
@@ -191,23 +462,26 @@ provide('toggleSidebar', toggleSidebar)
       @select="selectConversation"
       @new="createNewConversation"
     />
-    
-    <div 
+
+    <div
       class="chat-main"
       :style="{ marginLeft: sidebarWidth + 'px' }"
     >
       <div v-if="currentConversation" class="chat-container">
-        <ChatMessages 
-          :messages="messages" 
-          :is-streaming="isStreaming"
-        />
-        
-        <MessageInput 
+        <div class="chat-message-block">
+          <ChatMessages
+            :messages="messages"
+            :is-streaming="isStreaming"
+            :current-streaming-id="currentMessageId"
+          />
+        </div>
+
+        <MessageInput
           @send="handleSendMessage"
           :disabled="isStreaming"
         />
       </div>
-      
+
       <div v-else class="empty-state">
         <div class="empty-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -241,6 +515,13 @@ provide('toggleSidebar', toggleSidebar)
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
+}
+
+.chat-message-block {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* ✅ 关键：flex子元素溢出修复 */
 }
 
 .empty-state {
@@ -284,7 +565,7 @@ provide('toggleSidebar', toggleSidebar)
     z-index: 10;
     margin-left: 0 !important;
   }
-  
+
   .chat-page {
     position: relative;
   }

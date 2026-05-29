@@ -10,7 +10,7 @@ class MessageRole(str, Enum):
     TOOL = "tool"
 
 
-class MessageType(int, Enum):
+class MessageType:
     TEXT = 0
     TOOL_START = 1
     TOOL_END = 2
@@ -33,12 +33,14 @@ class ChatRequest(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    status: bool
-    content: Optional[str] = None
-    message_id: Optional[str] = None
+    status: bool = False
+    content: str = ""
+    message_id: str = ""
+    type: int = MessageType.TEXT
     finish_reason: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    type: Optional[int] = Field(default=0, description="消息类型：0=普通文本, 1=工具调用中, 2=工具调用完成, 3=联网搜索中, 4=联网搜索完成")
+    finish_status: Optional[bool] = False
+    reasoning_content: Optional[str] = None
+    sequence: Optional[int] = None
 
 
 class ToolCallRequest(BaseModel):
