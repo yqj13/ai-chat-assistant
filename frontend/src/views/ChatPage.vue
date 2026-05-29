@@ -375,15 +375,21 @@ const createStreamConnection = () => {
       let newToolCalls = existingMessage.toolCalls ? [...existingMessage.toolCalls] : []
 
       if (data.type === 0 || data.type === undefined) {
+        messages.value[index].toolCallsCollapsed = true
         if (data.content) {
           newContent += data.content
         }
         if (data.reasoning_content) {
+          messages.value[index].collapsed = false
           newReasoningContent += data.reasoning_content
+        } else {
+          messages.value[index].collapsed = true
         }
       } else {
+        
         if (data.content) {
           try {
+            messages.value[index].toolCallsCollapsed = false
             const toolData = JSON.parse(data.content)
             newToolCalls.push({
               type: data.type,
@@ -404,6 +410,8 @@ const createStreamConnection = () => {
         toolCalls: newToolCalls,
         loading: newLoading
       }
+
+      console.log('消息渲染:', messages.value[index])
 
     } catch (error) {
       console.error('处理消息失败:', error)
@@ -486,7 +494,7 @@ provide('toggleSidebar', toggleSidebar)
 
         <MessageInput
           @send="handleSendMessage"
-          :disabled="isStreaming"
+          :isStreaming="isStreaming"
         />
       </div>
 

@@ -4,8 +4,11 @@ import { Button as TButton } from 'tdesign-vue-next';
 import { InternetIcon, SystemSumIcon } from 'tdesign-icons-vue-next'
 
 const props = defineProps({
-  disabled: Boolean
+  // disabled: Boolean,
+  isStreaming: Boolean
 })
+
+const loading = ref(false)
 
 const activeR1 = ref(false)
 const activeSearch = ref(false)
@@ -17,7 +20,7 @@ const textareaRef = ref(null)
 
 const handleSend = () => {
   if (!inputText.value.trim() || props.disabled) return
-
+  loading.value = true
   emit('send', {
     content: inputText.value,
     deepThinking: activeR1.value,
@@ -30,6 +33,7 @@ const handleSend = () => {
 
 const onStop = () => {
   inputText.value = ''
+  loading.value = false
 }
 
 const handleKeydown = (e) => {
@@ -49,7 +53,7 @@ watch(() => props.disabled, (newVal) => {
 <template>
   <div class="message-input-container">
     <div class="input-wrapper">
-      <t-chat-sender v-model="inputText" :loading="loading" :textarea-props="{
+      <t-chat-sender v-model="inputText" :loading="isStreaming" :textarea-props="{
         placeholder: '请输入消息...',
       }" @send="handleSend" @stop="onStop" @keydown="handleKeydown">
         <template #footer-prefix>

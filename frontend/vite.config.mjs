@@ -14,6 +14,7 @@ export default defineConfig({
       TDesignResolver({
         library: 'chat',
       }),
+      TDesignResolver(),
     ],
   }),
   Components({
@@ -21,6 +22,7 @@ export default defineConfig({
       TDesignResolver({
         library: 'chat',
       }),
+      TDesignResolver(),
     ],
   }),
   ],

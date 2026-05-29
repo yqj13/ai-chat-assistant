@@ -1,50 +1,58 @@
 <template>
   <div class="chat-messages" ref="chatMessages">
-    <!-- 消息列表 -->
     <div v-for="msg in messages" :key="msg.id" :class="['message-item', msg.role]">
       <div class="message-avatar">
-        <span v-if="msg.role === 'user'">👤</span>
-        <span v-else>🤖</span>
+        <div v-if="msg.role === 'user'">
+          <user-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
+        </div>
+        <div v-else>
+          <robot-2-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
+        </div>
       </div>
 
       <div class="message-bubble">
-        <!-- 思考过程 -->
-        <div v-if="msg.reasoningContent" class="reasoning-block">
-          <details open>
-            <summary>💭 思考过程</summary>
-            <div class="reasoning-content">
-              <StreamMarkdown :content="msg.reasoningContent" :typing="!msg.finished && isStreaming" :speed="15"
-                :cursor="false" @step="scrollToBottom" />
-            </div>
-          </details>
-        </div>
+        <t-chat-thinking
+          v-if="msg.reasoningContent"
+          :content="{
+            title: !msg.collapsed ? '思考中' : '思考完成',
+            text: msg.reasoningContent
+          }"
+          :collapsed="msg.collapsed || false"
+          :status="msg.collapsed? 'complete': 'pending'"
+          @collapsed-change="collapsedChangeHandle(msg)"
+        >
+          <template #header>
+            <div class="reasoning-header">💭 思考过程</div>
+          </template>
+        </t-chat-thinking>
 
-        <!-- Loading 状态 -->
         <div v-if="msg.loading && !msg.content && !msg.reasoningContent" class="loading-indicator">
           <span class="dot"></span>
           <span class="dot"></span>
           <span class="dot"></span>
         </div>
 
-        <!-- 助手消息 -->
-        <div v-if="msg.content && msg.role === 'assistant'" class="message-content">
-          <!-- <StreamMarkdown
-            :content="msg.content"
-            :typing="!msg.finished && isStreaming && msg.id === currentStreamingId"
-            :speed="25"
-            :cursor="!msg.finished && isStreaming && msg.id === currentStreamingId"
-            :cursor-remove-on-complete="true"
-            :enable-latex="true"
-            :enable-mermaid="true"
-            @complete="handleComplete(msg)"
-            @step="scrollToBottom"
-          /> -->
-          <t-chat-markdown :content="msg.content" :options="options" />
-
+        <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-section">
+          <div class="tool-calls-header">🔧 工具调用</div>
+          <div class="icon"  @click="toggleToolCalls(msg)">
+            <component :is="msg.toolCallsCollapsed ? ChevronDownSIcon : ChevronUpIcon" :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2" />
+          </div>
+          <t-steps :current="msg.toolCalls.length - 1" :readonly="true" layout="vertical" v-if="!msg.toolCallsCollapsed">
+            <t-step-item
+              v-for="(tool, index) in msg.toolCalls"
+              :key="index"
+              :title="getToolTitle(tool)"
+              :content="getToolContent(tool)"
+              :status="index < msg.toolCalls.length - 1 ? 'default' : 'process'"
+            />
+          </t-steps>
         </div>
 
-        <!-- 用户消息 -->
-        <div v-if="msg.content && msg.role === 'user'" class="message-content ">
+        <div v-if="msg.content && msg.role === 'assistant'" class="message-content">
+          <t-chat-markdown :content="msg.content" :options="options" />
+        </div>
+
+        <div v-if="msg.content && msg.role === 'user'" class="message-content">
           {{ msg.content }}
         </div>
       </div>
@@ -54,7 +62,8 @@
 
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
-// import 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+import { Steps as TSteps, StepItem as TStepItem } from 'tdesign-vue-next'
+import { Robot2Icon, UserIcon } from 'tdesign-icons-vue-next'
 
 const props = defineProps({
   messages: {
@@ -71,24 +80,51 @@ const props = defineProps({
   }
 })
 
+
+
 const chatMessages = ref(null)
 
 const options = ref({
   engine: {
     syntax: {
-    mathBlock: {
-      engine: 'KaTeX',
-    },
-    inlineMath: {
-      engine: 'KaTeX',
-    },
-  }
-},})
+      mathBlock: {
+        engine: 'KaTeX',
+      },
+      inlineMath: {
+        engine: 'KaTeX',
+      },
+    }
+  },
+})
 
-/**
- * 滚动到聊天框底部
- * 获取容器最后一个子元素，使用 scrollIntoView 平滑滚动
- */
+const getToolTitle = (tool) => {
+  console.log('tool:', tool)
+  const toolNameMap = {
+    'weather_query': '天气查询',
+    'time_query': '时间查询',
+    'web_search': '联网查询',
+    'calculator': '计算器',
+  }
+  
+  return `工具调用: ${toolNameMap[tool?.data?.tool] || tool.type}`
+}
+
+const getToolContent = (tool) => {
+  if (!tool || !tool.data) return ''
+  try {
+    const { params, result } = tool.data
+    if (params) {
+      return '参数: ' + JSON.stringify(params, null, 2)
+    }
+    if (result) {
+      return '结果: ' + JSON?.stringify(result, null, 2)?.replaceAll('##', '')?.replaceAll('\\n', ' ')?.replace('content=', '') || ' '
+    }
+    return JSON.stringify(tool.data, null, 2)
+  } catch (e) {
+    return String(tool.data)
+  }
+}
+
 const scrollToBottom = async () => {
   await nextTick()
   if (chatMessages.value) {
@@ -100,12 +136,23 @@ const scrollToBottom = async () => {
   }
 }
 
+const collapsedChangeHandle = (msg) => {
+  msg.collapsed = !msg.collapsed;
+  console.log('折叠状态变化:', msg.collapsed)
+}
+
+const toggleToolCalls = (msg) => {
+  msg.toolCallsCollapsed = !msg.toolCallsCollapsed;
+  console.log('工具调用折叠状态变化:', msg.toolCallsCollapsed)
+}
+
+
+
 const handleComplete = (msg) => {
   console.log('消息渲染完成:', msg.id)
   scrollToBottom()
 }
 
-// 监听消息数量变化（新消息加入时滚动）
 watch(
   () => props.messages.length,
   () => {
@@ -113,9 +160,14 @@ watch(
   }
 )
 
-// 监听消息内容变化（流式追加时滚动）
+
+
 watch(
-  () => props.messages,
+  () => props.messages.map(msg => ({
+    reasoningContent: msg.reasoningContent,
+    toolCalls: msg.toolCalls,
+    content: msg.content,
+  })),
   () => {
     scrollToBottom()
   },
@@ -126,7 +178,6 @@ onMounted(() => {
   scrollToBottom()
 })
 
-// 暴露给父组件调用
 defineExpose({
   scrollToBottom
 })
@@ -180,7 +231,6 @@ defineExpose({
 }
 
 .message-item.user .message-bubble {
-
   border-bottom-right-radius: 6px;
 }
 
@@ -199,7 +249,6 @@ defineExpose({
   font-size: 15px;
 }
 
-/* Loading */
 .loading-indicator {
   display: flex;
   align-items: center;
@@ -224,40 +273,49 @@ defineExpose({
 }
 
 @keyframes bounce {
-
   0%,
   80%,
   100% {
     transform: scale(0);
   }
-
   40% {
     transform: scale(1);
   }
 }
 
-/* 思考过程 */
-.reasoning-block {
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  background: #f0f7ff;
-  border-radius: 10px;
-  font-size: 13px;
-  border: 1px solid #d6e8fa;
-}
-
-.reasoning-block summary {
-  cursor: pointer;
-  color: #555;
+.reasoning-header {
+  font-size: 14px;
   font-weight: 500;
+  color: #555;
+  margin-bottom: 8px;
 }
 
-.reasoning-content {
-  margin-top: 8px;
-  color: #666;
+.tool-calls-section {
+  margin: 12px 0;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  position: relative;
 }
 
-/* 滚动条 */
+
+.tool-calls-header {
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+  margin-bottom: 12px;
+}
+
+.icon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  cursor: pointer;
+}
+
+
+
 .chat-messages::-webkit-scrollbar {
   width: 6px;
 }
