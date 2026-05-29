@@ -5,7 +5,7 @@ from typing import Optional
 class Settings(BaseSettings):
     API_URL: str = "https://api.qnaigc.com/v1"
     API_KEY: str = "sk-07c8ec0cd1621fceb1038134cdba52bfcc069cdc49235e609827d1247d053728"
-    MODEL_NAME: str = "deepseek-v3"
+    MODEL_NAME: str = "deepseek/deepseek-v3.2-exp-thinking"
     
     HOST: str = "0.0.0.0"
     PORT: int = 8000

@@ -28,6 +28,8 @@ class ChatRequest(BaseModel):
     uid: str
     context_id: Optional[str] = None
     last_message_id: Optional[str] = None
+    deep_thinking: Optional[bool] = False
+    web_search: Optional[bool] = False
 
 
 @app.post("/api/chat")
@@ -35,12 +37,22 @@ async def chat(request: ChatRequest):
     """
     发送消息接口 - 对应 Java 版的 /chat
     只触发 agent 执行，返回 message_id
+    
+    参数说明：
+    - content: 用户输入内容
+    - uid: 用户ID
+    - context_id: 对话上下文ID（用于多轮对话）
+    - last_message_id: 最后消息ID（用于断点续传）
+    - deep_thinking: 是否开启深度思考模式
+    - web_search: 是否强制使用联网查询
     """
     message_id = await chat_service.chat(
         content=request.content,
         uid=request.uid,
         context_id=request.context_id,
-        last_message_id=request.last_message_id
+        last_message_id=request.last_message_id,
+        deep_thinking=request.deep_thinking,
+        web_search=request.web_search
     )
     return JSONResponse(content={"message_id": message_id})
 

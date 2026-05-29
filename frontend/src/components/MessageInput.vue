@@ -18,8 +18,14 @@ const textareaRef = ref(null)
 const handleSend = () => {
   if (!inputText.value.trim() || props.disabled) return
 
-  emit('send', inputText.value)
+  emit('send', {
+    content: inputText.value,
+    deepThinking: activeR1.value,
+    webSearch: activeSearch.value
+  })
   inputText.value = ''
+  activeR1.value = false
+  activeSearch.value = false
 }
 
 const onStop = () => {

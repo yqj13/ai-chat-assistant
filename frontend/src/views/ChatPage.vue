@@ -81,7 +81,11 @@ const findMessageIndex = (messageId) => {
   return messages.value.findIndex(m => m.id === messageId)
 }
 
-const handleSendMessage = async (content) => {
+const handleSendMessage = async (message) => {
+  const content = typeof message === 'string' ? message : message.content
+  const deepThinking = typeof message === 'object' ? message.deepThinking || false : false
+  const webSearch = typeof message === 'object' ? message.webSearch || false : false
+
   if (!content.trim()) return
 
   isStreaming.value = true
@@ -91,6 +95,8 @@ const handleSendMessage = async (content) => {
     id: 'msg_' + Date.now(),
     role: 'user',
     content: content.trim(),
+    deepThinking,
+    webSearch,
     timestamp: Date.now()
   }
   messages.value.push(userMessage)
@@ -119,7 +125,9 @@ const handleSendMessage = async (content) => {
         content: content.trim(),
         uid: uid.value,
         context_id: currentConversation.value?.id || null,
-        last_message_id: null
+        last_message_id: null,
+        deep_thinking: deepThinking,
+        web_search: webSearch
       })
     })
 
