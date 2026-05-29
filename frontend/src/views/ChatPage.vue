@@ -10,11 +10,11 @@ const messages = ref([])
 const isStreaming = ref(false)
 const currentMessageId = ref(null)
 const lastSequence = ref(0)
-const uid = ref('user_' + Date.now())
+const uid = ref('1')
 
 const eventSource = ref(null)
 
-// ✅ 新增：记录占位消息的临时 id，用于在 SSE 中匹配
+// 新增：记录占位消息的临时 id，用于在 SSE 中匹配
 const pendingPlaceholderId = ref(null)
 
 // 重连策略
@@ -23,7 +23,7 @@ const maxReconnectAttempts = 5
 const reconnectDelay = ref(1000)
 const reconnectTimer = ref(null)
 
-const localStorageKey = computed(() => `sse_state_${uid.value}`)
+const localStorageKey = ref('1')
 
 const getStoredState = () => {
   try {
@@ -434,7 +434,7 @@ const createStreamConnection = () => {
 }
 
 onMounted(() => {
-  // ✅ 修复：只恢复状态，不创建占位消息
+  // 修复：只恢复状态，不创建占位消息
   // 占位消息应在 SSE 收到数据时按需创建（断点续传场景）
   const storedState = getStoredState()
   if (storedState && storedState.messageId) {
@@ -442,8 +442,7 @@ onMounted(() => {
     isStreaming.value = true
     currentMessageId.value = storedState.messageId
     lastSequence.value = storedState.sequence || 0
-    // ✅ 不再在这里 push 占位消息
-    // SSE onmessage 中 findMessageIndex 找不到时会自动创建
+    scheduleReconnect()
   }
 
   createStreamConnection()
