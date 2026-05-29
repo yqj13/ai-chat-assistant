@@ -1,11 +1,16 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
+import logging
 
 from chat_service import chat_service
 from sse_manager import sse_manager
+from agui_chat_service import agui_chat_service
+from agui_sse_manager import agui_sse_manager
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -77,6 +82,96 @@ async def cleanup_user(uid: str):
 async def cleanup_message(uid: str, message_id: str):
     """清理指定消息缓存"""
     await sse_manager.cleanup_message(uid, message_id)
+    return JSONResponse(content={"status": "ok"})
+
+
+class AguiChatRequest(BaseModel):
+    content: str
+    uid: str
+    run_id: Optional[str] = None
+
+
+@app.post("/api/agui/chat")
+async def agui_chat(request: AguiChatRequest):
+    """
+    AgUI 协议 - 发送消息接口
+    触发 agent 执行，返回 message_id
+    """
+    message_id = await agui_chat_service.chat(
+        content=request.content,
+        uid=request.uid,
+        run_id=request.run_id
+    )
+    return JSONResponse(content={"message_id": message_id})
+
+
+class AguiStreamRequest(BaseModel):
+    content: Optional[str] = None
+    uid: str
+    message_id: Optional[str] = None
+    last_sequence: int = 0
+    model: Optional[str] = None
+    temperature: Optional[float] = None
+
+
+@app.post("/api/agui/stream")
+async def agui_stream(
+    request: AguiStreamRequest,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_custom_header: Optional[str] = Header(None, alias="X-Custom-Header")
+):
+    """
+    AgUI 协议 - SSE 连接接口
+    支持流式输出和工具调用，消息格式遵循 TDesign AgUI 协议
+    
+    支持自定义请求头：
+    - Authorization: Bearer token
+    - X-Custom-Header: 自定义头
+    
+    请求体参数：
+    - content: 用户输入内容（可选，若提供则先触发聊天）
+    - uid: 用户ID（必填）
+    - message_id: 消息ID（可选，用于断点续传）
+    - last_sequence: 最后收到的序号（可选，用于断点续传）
+    - model: 模型名称（可选）
+    - temperature: 温度参数（可选）
+    """
+    logger.info(f"AgUI stream request - uid: {request.uid}, message_id: {request.message_id}, "
+                f"authorization: {authorization is not None}, x_custom_header: {x_custom_header}")
+    
+    if request.content and not request.message_id:
+        request.message_id = await agui_chat_service.chat(
+            content=request.content,
+            uid=request.uid
+        )
+    
+    return StreamingResponse(
+        agui_sse_manager.stream_generator(
+            uid=request.uid,
+            message_id=request.message_id,
+            last_sequence=request.last_sequence,
+            timeout=120
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.delete("/api/agui/user/{uid}")
+async def agui_cleanup_user(uid: str):
+    """AgUI 协议 - 清理用户所有缓存"""
+    await agui_sse_manager.cleanup_user(uid)
+    return JSONResponse(content={"status": "ok"})
+
+
+@app.delete("/api/agui/message/{uid}/{message_id}")
+async def agui_cleanup_message(uid: str, message_id: str):
+    """AgUI 协议 - 清理指定消息缓存"""
+    await agui_sse_manager.cleanup_message(uid, message_id)
     return JSONResponse(content={"status": "ok"})
 
 

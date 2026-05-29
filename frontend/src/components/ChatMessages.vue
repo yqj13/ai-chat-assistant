@@ -1,10 +1,7 @@
 <template>
-  <div class="chat-messages" ref="messagesContainer">
-    <div
-      v-for="msg in messages"
-      :key="msg.id"
-      :class="['message-item', msg.role]"
-    >
+  <div class="chat-messages" ref="chatMessages">
+    <!-- 消息列表 -->
+    <div v-for="msg in messages" :key="msg.id" :class="['message-item', msg.role]">
       <div class="message-avatar">
         <span v-if="msg.role === 'user'">👤</span>
         <span v-else>🤖</span>
@@ -21,6 +18,7 @@
                 :typing="!msg.finished && isStreaming"
                 :speed="15"
                 :cursor="false"
+                @step="scrollToBottom"
               />
             </div>
           </details>
@@ -44,12 +42,13 @@
             :enable-latex="true"
             :enable-mermaid="true"
             @complete="handleComplete(msg)"
-            @step="handleStep"
+            @step="scrollToBottom"
           />
+          
         </div>
 
         <!-- 用户消息 -->
-        <div v-if="msg.content && msg.role === 'user'" class="message-content user-text">
+        <div v-if="msg.content && msg.role === 'user'" class="message-content ">
           {{ msg.content }}
         </div>
       </div>
@@ -76,36 +75,53 @@ const props = defineProps({
   }
 })
 
-const messagesContainer = ref(null)
+const chatMessages = ref(null)
+
+/**
+ * 滚动到聊天框底部
+ * 获取容器最后一个子元素，使用 scrollIntoView 平滑滚动
+ */
+const scrollToBottom = async () => {
+  await nextTick()
+  if (chatMessages.value) {
+    const children = chatMessages.value.children
+    const lastMessage = children[children.length - 1]
+    if (lastMessage) {
+      lastMessage.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }
+}
 
 const handleComplete = (msg) => {
   console.log('消息渲染完成:', msg.id)
-}
-
-const handleStep = () => {
   scrollToBottom()
 }
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-    }
-  })
-}
+// 监听消息数量变化（新消息加入时滚动）
+watch(
+  () => props.messages.length,
+  () => {
+    scrollToBottom()
+  }
+)
 
+// 监听消息内容变化（流式追加时滚动）
 watch(
   () => props.messages,
-  () => scrollToBottom(),
+  () => {
+    scrollToBottom()
+  },
   { deep: true }
 )
 
-watch(
-  () => props.messages.length,
-  () => scrollToBottom()
-)
+onMounted(() => {
+  scrollToBottom()
+})
 
-onMounted(() => scrollToBottom())
+// 暴露给父组件调用
+defineExpose({
+  scrollToBottom
+})
 </script>
 
 <style scoped>
@@ -113,6 +129,7 @@ onMounted(() => scrollToBottom())
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+  padding-bottom: 40px;
   scroll-behavior: smooth;
 }
 
@@ -144,10 +161,6 @@ onMounted(() => scrollToBottom())
   flex-shrink: 0;
 }
 
-.message-item.user .message-avatar {
-  background: linear-gradient(135deg, #667eea, #764ba2);
-}
-
 .message-bubble {
   padding: 14px 18px;
   border-radius: 16px;
@@ -159,9 +172,8 @@ onMounted(() => scrollToBottom())
 }
 
 .message-item.user .message-bubble {
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: #fff;
-  border-bottom-right-radius: 4px;
+  
+  border-bottom-right-radius: 6px;
 }
 
 .message-item.assistant .message-bubble {
@@ -195,12 +207,21 @@ onMounted(() => scrollToBottom())
   animation: bounce 1.4s infinite ease-in-out both;
 }
 
-.loading-indicator .dot:nth-child(1) { animation-delay: -0.32s; }
-.loading-indicator .dot:nth-child(2) { animation-delay: -0.16s; }
+.loading-indicator .dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-indicator .dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
 }
 
 /* 思考过程 */
@@ -222,5 +243,23 @@ onMounted(() => scrollToBottom())
 .reasoning-content {
   margin-top: 8px;
   color: #666;
+}
+
+/* 滚动条 */
+.chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background-color: #d4d4d4;
+  border-radius: 3px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background-color: #aaa;
 }
 </style>
