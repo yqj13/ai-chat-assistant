@@ -54,7 +54,6 @@
 
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
-import StreamMarkdown from './StreamMarkdown.vue'
 // import 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
 
 const props = defineProps({
