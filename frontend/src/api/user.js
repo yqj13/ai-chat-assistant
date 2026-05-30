@@ -1,6 +1,10 @@
 import { get, post, put, del } from '../utils/request'
 
 export const userApi = {
+  auth: (username, password) => {
+    return post('/user/auth', { username, password })
+  },
+
   register: (username, password) => {
     return post('/user/register', { username, password })
   },

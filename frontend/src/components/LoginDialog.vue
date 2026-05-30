@@ -8,8 +8,8 @@
             <robot-2-icon :fill-color="'transparent'" :stroke-color="'#1890ff'" :stroke-width="2" />
             <span>AI 聊天助手</span>
           </div>
-          <h3>{{ isLoginMode ? '欢迎回来' : '创建账户' }}</h3>
-          <p>{{ isLoginMode ? '登录您的账户开始聊天' : '注册新账户' }}</p>
+          <h3>{{ title }}</h3>
+          <p>账号不存在将自动注册，已存在则直接登录</p>
         </div>
 
         <form class="dialog-content" @submit.prevent="onConfirm">
@@ -38,22 +38,6 @@
             />
           </div>
 
-          <div v-if="!isLoginMode" class="form-group">
-            <label class="form-label">
-              <lock-on-icon :fill-color="'transparent'" :stroke-color="'#999'" :stroke-width="1.5" />
-              确认密码
-            </label>
-            <t-input
-              v-model="confirmPassword"
-              type="password"
-              placeholder="请再次输入密码"
-              :disabled="loading"
-            />
-            <div v-if="password && confirmPassword && password !== confirmPassword" class="error-hint">
-              两次输入的密码不一致
-            </div>
-          </div>
-
           <div v-if="errorMessage" class="error-message">
             {{ errorMessage }}
           </div>
@@ -73,15 +57,8 @@
             :disabled="!canSubmit || loading"
             @click="onConfirm"
           >
-            {{ isLoginMode ? '登录' : '注册' }}
+            登录 / 注册
           </t-button>
-        </div>
-
-        <div class="dialog-footer">
-          <span>{{ isLoginMode ? '还没有账户？' : '已有账户？' }}</span>
-          <button class="mode-toggle" @click="toggleMode">
-            {{ isLoginMode ? '立即注册' : '立即登录' }}
-          </button>
         </div>
       </div>
     </div>
@@ -110,46 +87,21 @@ const props = defineProps({
 })
 
 const visible = ref(true)
-const isLoginMode = ref(true)
 const username = ref('')
 const password = ref('')
-const confirmPassword = ref('')
 const errorMessage = ref('')
 const loading = ref(false)
 
 const canSubmit = computed(() => {
-  if (isLoginMode.value) {
-    return username.value.trim() && password.value.trim()
-  }
-  return (
-    username.value.trim() &&
-    password.value.trim() &&
-    password.value === confirmPassword.value
-  )
+  return !!(username.value.trim() && password.value.trim())
 })
-
-function toggleMode() {
-  isLoginMode.value = !isLoginMode.value
-  errorMessage.value = ''
-  confirmPassword.value = ''
-}
 
 async function onConfirm() {
   if (!canSubmit.value || loading.value) return
   errorMessage.value = ''
   loading.value = true
   try {
-    let result
-    if (isLoginMode.value) {
-      result = await userApi.login(username.value, password.value)
-    } else {
-      result = await userApi.register(username.value, password.value)
-      if (result && !result.error) {
-        result = await userApi.login(username.value, password.value)
-      } else {
-        throw new Error(result?.error || '注册失败')
-      }
-    }
+    const result = await userApi.auth(username.value, password.value)
 
     if (result && !result.error) {
       localStorage.setItem('user', JSON.stringify(result))
@@ -278,11 +230,6 @@ function onCancel() {
   height: 14px;
 }
 
-.error-hint {
-  font-size: 12px;
-  color: #f5222d;
-}
-
 .error-message {
   padding: 8px 10px;
   background: #fff2f0;
@@ -296,28 +243,5 @@ function onCancel() {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 18px;
-}
-
-.dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 16px;
-  font-size: 13px;
-  color: #666;
-}
-
-.mode-toggle {
-  color: #1890ff;
-  cursor: pointer;
-  font-weight: 500;
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-.mode-toggle:hover {
-  text-decoration: underline;
 }
 </style>

@@ -1,5 +1,6 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { MessagePlugin } from 'tdesign-vue-next'
+import { useLogin } from '../composables/useLogin'
 
 const BASE_URL = 'http://localhost:8000/api'
 
@@ -11,10 +12,20 @@ const request = axios.create({
   }
 })
 
-let loginModalInstance = null
+let isLoginOpen = false
 
-export const setLoginModalInstance = (instance) => {
-  loginModalInstance = instance
+const openLoginOnce = () => {
+  if (isLoginOpen) return
+  isLoginOpen = true
+  const login = useLogin()
+  login.open({
+    onConfirm: () => {
+      isLoginOpen = false
+    },
+    onCancel: () => {
+      isLoginOpen = false
+    }
+  })
 }
 
 request.interceptors.request.use(
@@ -58,19 +69,17 @@ request.interceptors.response.use(
 
     switch (status) {
       case 400:
-        ElMessage.error(`请求参数错误: ${errorMessage}`)
+        MessagePlugin.error(`请求参数错误: ${errorMessage}`)
         break
       case 401:
-        ElMessage.warning('登录已过期，请重新登录')
-        if (loginModalInstance) {
-          loginModalInstance.open()
-        }
+        MessagePlugin.warning('登录已过期，请重新登录')
+        openLoginOnce()
         break
       case 403:
-        ElMessage.error('没有权限访问该资源')
+        MessagePlugin.error('没有权限访问该资源')
         break
       case 404:
-        ElMessage.error('请求的资源不存在')
+        MessagePlugin.error('请求的资源不存在')
         break
       case 500:
       case 502:
@@ -80,17 +89,17 @@ request.interceptors.response.use(
           url: error.config?.url,
           detail: errorData
         })
-        ElMessage.error('服务器错误，请稍后重试')
+        MessagePlugin.error('服务器错误，请稍后重试')
         break
       case 0:
         if (error.message.includes('timeout')) {
-          ElMessage.error('请求超时，请检查网络连接')
+          MessagePlugin.error('请求超时，请检查网络连接')
         } else {
-          ElMessage.error('网络连接失败，请检查网络')
+          MessagePlugin.error('网络连接失败，请检查网络')
         }
         break
       default:
-        ElMessage.error(errorMessage)
+        MessagePlugin.error(errorMessage)
     }
 
     return Promise.reject({
