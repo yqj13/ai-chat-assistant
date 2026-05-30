@@ -111,6 +111,7 @@ class AguiChatService:
             )
 
             current_content = ""
+            current_reasoning_content = ""
 
             async for event in self.agent.astream_events(
                 {"messages": [{"role": "user", "content": input_text}]},
@@ -146,6 +147,7 @@ class AguiChatService:
                             )
 
                         if reasoning_content:
+                            current_reasoning_content += reasoning_content
                             await self._send_agui_message(
                                 uid,
                                 message_id,

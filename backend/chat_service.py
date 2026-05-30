@@ -271,6 +271,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         config: RunnableConfig = {"configurable": {"thread_id": history_key}}
         agent = self._create_agent(deep_thinking=False)
         current_content = ""
+        current_reasoning_content = ""
         
         async for event in agent.astream_events(
             {"messages": messages},
@@ -283,15 +284,18 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                 chunk = event["data"]["chunk"]
                 
                 if hasattr(chunk, "content") and chunk.content:
+                    text_content = ""
+                    reasoning_content = ""
+                    
                     if isinstance(chunk.content, str):
                         text_content = chunk.content
                     elif isinstance(chunk.content, list):
-                        text_content = ""
                         for part in chunk.content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                text_content += part.get("text", "")
-                    else:
-                        text_content = ""
+                            if isinstance(part, dict):
+                                if part.get("type") == "text":
+                                    text_content += part.get("text", "")
+                                elif part.get("type") == "thinking":
+                                    reasoning_content += part.get("thinking", "")
                     
                     if text_content:
                         current_content += text_content
@@ -300,7 +304,23 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                             content=text_content,
                             message_id=message_id,
                             type=MessageType.TEXT,
-                            finish_status=False
+                            finish_status=False,
+                            reasoning_content=reasoning_content if reasoning_content else None
+                        )
+                        await sse_manager.send_message(
+                            uid,
+                            message_id,
+                            json.dumps(stream_chunk.dict(), ensure_ascii=False)
+                        )
+                    elif reasoning_content:
+                        current_reasoning_content += reasoning_content
+                        stream_chunk = StreamChunk(
+                            status=False,
+                            content="",
+                            message_id=message_id,
+                            type=MessageType.TEXT,
+                            finish_status=False,
+                            reasoning_content=reasoning_content
                         )
                         await sse_manager.send_message(
                             uid,
@@ -318,7 +338,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     content=json.dumps({"tool": tool_name, "params": tool_inputs}, ensure_ascii=False),
                     message_id=message_id,
                     type=tool_type,
-                    finish_status=False
+                    finish_status=False,
+                    reasoning_content=current_reasoning_content if current_reasoning_content else None
                 )
                 await sse_manager.send_message(
                     uid,
@@ -341,7 +362,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     content=json.dumps({"tool": tool_name, "result": tool_result}, ensure_ascii=False),
                     message_id=message_id,
                     type=tool_end_type,
-                    finish_status=False
+                    finish_status=False,
+                    reasoning_content=current_reasoning_content if current_reasoning_content else None
                 )
                 await sse_manager.send_message(
                     uid,
@@ -358,7 +380,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
             message_id=message_id,
             finish_reason="stop",
             type=MessageType.TEXT,
-            finish_status=True
+            finish_status=True,
+            reasoning_content=current_reasoning_content if current_reasoning_content else None
         )
         await sse_manager.send_message(
             uid,

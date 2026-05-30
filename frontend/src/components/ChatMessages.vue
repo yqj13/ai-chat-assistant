@@ -63,7 +63,7 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
 import { Steps as TSteps, StepItem as TStepItem } from 'tdesign-vue-next'
-import { Robot2Icon, UserIcon } from 'tdesign-icons-vue-next'
+import { Robot2Icon, UserIcon, ChevronDownSIcon, ChevronUpIcon } from 'tdesign-icons-vue-next'
 
 const props = defineProps({
   messages: {
