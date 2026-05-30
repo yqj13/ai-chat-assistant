@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 
+from config import settings
 from chat_service import chat_service
 from sse_manager import sse_manager
 from agui_chat_service import agui_chat_service

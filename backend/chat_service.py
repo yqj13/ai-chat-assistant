@@ -63,6 +63,25 @@ class ChatService:
             return MessageType.SEARCH_END
         return MessageType.TOOL_END
 
+    def _parse_tool_output(self, tool_output):
+        if not tool_output:
+            return {"raw_output": "", "error": "No output from tool"}
+        
+        if isinstance(tool_output, dict):
+            return tool_output
+        
+        output_str = str(tool_output.content) if hasattr(tool_output, 'content') else str(tool_output)
+        
+        try:
+            if output_str.startswith("content="):
+                output_str = output_str[8:]
+            parsed = json.loads(output_str)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"raw_output": output_str}
+        except json.JSONDecodeError:
+            return {"raw_output": output_str}
+
     async def chat(
         self,
         content: str,
@@ -352,14 +371,11 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                 tool_name = event.get("name", "")
                 tool_end_type = self._get_tool_end_type(tool_name)
 
-                if isinstance(tool_output, str):
-                    tool_result = tool_output
-                else:
-                    tool_result = str(tool_output)
-
+                parsed_result = self._parse_tool_output(tool_output)
+                
                 stream_chunk = StreamChunk(
                     status=False,
-                    content=json.dumps({"tool": tool_name, "result": tool_result}, ensure_ascii=False),
+                    content=json.dumps({"tool": tool_name, "result": parsed_result}, ensure_ascii=False),
                     message_id=message_id,
                     type=tool_end_type,
                     finish_status=False,
@@ -370,9 +386,32 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     message_id,
                     json.dumps(stream_chunk.dict(), ensure_ascii=False)
                 )
+            
+            elif kind == "on_agent_finish":
+                final_output = event["data"].get("output", "")
+                if final_output:
+                    final_text = str(final_output.content) if hasattr(final_output, 'content') else str(final_output)
+                    current_content += final_text
+                    stream_chunk = StreamChunk(
+                        status=False,
+                        content=final_text,
+                        message_id=message_id,
+                        type=MessageType.TEXT,
+                        finish_status=False
+                    )
+                    await sse_manager.send_message(
+                        uid,
+                        message_id,
+                        json.dumps(stream_chunk.dict(), ensure_ascii=False)
+                    )
+            
+            else:
+                logger.info(f"DEBUG unhandled event kind: {kind}, event: {event}")
 
         if current_content:
             self.conversation_history[history_key].append(AIMessage(content=current_content))
+
+        logger.info(f"DEBUG Agent execution loop finished, current_content: '{current_content}'")
 
         finish_chunk = StreamChunk(
             status=True,

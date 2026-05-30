@@ -381,9 +381,11 @@ const createStreamConnection = () => {
         }
         if (data.reasoning_content) {
           messages.value[index].collapsed = false
+          messages.value[index].thinking = true
           newReasoningContent += data.reasoning_content
         } else {
           messages.value[index].collapsed = true
+          messages.value[index].thinking = false
         }
       } else {
         
