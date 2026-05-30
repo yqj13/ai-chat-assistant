@@ -10,11 +10,11 @@ const messages = ref([])
 const isStreaming = ref(false)
 const currentMessageId = ref(null)
 const lastSequence = ref(0)
-const uid = ref('user_' + Date.now())
+const uid = ref('1')
 
 const eventSource = ref(null)
 
-// ✅ 新增：记录占位消息的临时 id，用于在 SSE 中匹配
+// 新增：记录占位消息的临时 id，用于在 SSE 中匹配
 const pendingPlaceholderId = ref(null)
 
 // 重连策略
@@ -23,7 +23,7 @@ const maxReconnectAttempts = 5
 const reconnectDelay = ref(1000)
 const reconnectTimer = ref(null)
 
-const localStorageKey = computed(() => `sse_state_${uid.value}`)
+const localStorageKey = ref('1')
 
 const getStoredState = () => {
   try {
@@ -108,10 +108,9 @@ const handleSendMessage = async (message) => {
   const assistantMessage = {
     id: placeholderMessageId,
     role: 'assistant',
-    content: '',
+    parts: [],
     reasoningContent: '',
     timestamp: Date.now(),
-    type: 0,
     loading: true,
     finished: false
   }
@@ -344,10 +343,9 @@ const createStreamConnection = () => {
           messages.value.push({
             id: data.message_id,
             role: 'assistant',
-            content: '',
+            parts: [],
             reasoningContent: '',
             timestamp: Date.now(),
-            type: data.type || 0,
             loading: true,
             finished: false
           })
@@ -369,41 +367,89 @@ const createStreamConnection = () => {
         newLoading = false
       }
 
-      // 处理内容
-      let newContent = existingMessage.content
+      // 处理内容 - 按顺序添加到 parts 数组
+      let newParts = existingMessage.parts ? [...existingMessage.parts] : []
       let newReasoningContent = existingMessage.reasoningContent || ''
-      let newToolCalls = existingMessage.toolCalls ? [...existingMessage.toolCalls] : []
 
       if (data.type === 0 || data.type === undefined) {
-        if (data.content) {
-          newContent += data.content
-        }
+        // 普通文本内容
         if (data.reasoning_content) {
           newReasoningContent += data.reasoning_content
+          messages.value[index].collapsed = false
+          messages.value[index].thinking = true
+        } else {
+          messages.value[index].collapsed = true
+          messages.value[index].thinking = false
         }
+        
+        if (data.content) {
+          // 查找最后一个 part 的类型
+          const lastPart = newParts.length > 0 ? newParts[newParts.length - 1] : null
+          
+          // 如果最后一个 part 是文本，才追加；否则创建新的文本 part
+          if (lastPart && lastPart.type === 'text') {
+            lastPart.content += data.content
+          } else {
+            newParts.push({
+              type: 'text',
+              content: data.content,
+              timestamp: Date.now()
+            })
+          }
+        }
+        messages.value[index].toolCallsCollapsed = true
       } else {
+        // 工具调用内容
         if (data.content) {
           try {
             const toolData = JSON.parse(data.content)
-            newToolCalls.push({
-              type: data.type,
-              data: toolData,
+            
+            if (data.type === 1 || data.type === 3) {
+              // 工具开始调用
+              newParts.push({
+                type: 'tool_call',
+                params: toolData,
+                result: null,
+                timestamp: Date.now(),
+                collapsed: true
+              })
+            } else {
+              // 工具执行完成，找到最近的未配对的 tool_call 并填入结果
+              const lastToolCall = newParts.findLast(p => p.type === 'tool_call' && p.result === null)
+              if (lastToolCall) {
+                lastToolCall.result = toolData
+              } else {
+                // 如果没有找到对应的 tool_start，直接创建 tool_call
+                newParts.push({
+                  type: 'tool_call',
+                  params: null,
+                  result: toolData,
+                  timestamp: Date.now(),
+                  collapsed: true
+                })
+              }
+            }
+          } catch (e) {
+            // 如果解析失败，当作普通文本处理
+            newParts.push({
+              type: 'text',
+              content: data.content,
               timestamp: Date.now()
             })
-          } catch (e) {
-            newContent += data.content
           }
         }
+        messages.value[index].toolCallsCollapsed = false
       }
 
       // 替换整个对象触发响应式
       messages.value[index] = {
         ...existingMessage,
-        content: newContent,
+        parts: newParts,
         reasoningContent: newReasoningContent,
-        toolCalls: newToolCalls,
         loading: newLoading
       }
+
+      console.log('消息渲染:', messages.value[index])
 
     } catch (error) {
       console.error('处理消息失败:', error)
@@ -426,7 +472,7 @@ const createStreamConnection = () => {
 }
 
 onMounted(() => {
-  // ✅ 修复：只恢复状态，不创建占位消息
+  // 修复：只恢复状态，不创建占位消息
   // 占位消息应在 SSE 收到数据时按需创建（断点续传场景）
   const storedState = getStoredState()
   if (storedState && storedState.messageId) {
@@ -434,8 +480,7 @@ onMounted(() => {
     isStreaming.value = true
     currentMessageId.value = storedState.messageId
     lastSequence.value = storedState.sequence || 0
-    // ✅ 不再在这里 push 占位消息
-    // SSE onmessage 中 findMessageIndex 找不到时会自动创建
+    scheduleReconnect()
   }
 
   createStreamConnection()
@@ -486,7 +531,7 @@ provide('toggleSidebar', toggleSidebar)
 
         <MessageInput
           @send="handleSendMessage"
-          :disabled="isStreaming"
+          :isStreaming="isStreaming"
         />
       </div>
 

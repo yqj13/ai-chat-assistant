@@ -26,7 +26,7 @@ class TimeInput(BaseModel):
 
 @tool("weather_query", args_schema=WeatherInput)
 def get_weather(province: str, city: str) -> str:
-    """查询指定城市的天气信息。输入省份名称和城市名称，返回天气、温度等信息。"""
+    """查询指定城市的天气信息。输入省份名称和城市名称，返回天气、温度等信息。当用户询问直辖市的天气，city和province相同。"""
     try:
         url = f"https://cn.apihz.cn/api/tianqi/tqyb.php?id=10017282&key=bb7b534897137b356262de47aaef6559&sheng={requests.utils.quote(province)}&place={requests.utils.quote(city)}"
         response = requests.get(url, timeout=10)

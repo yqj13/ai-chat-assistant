@@ -67,6 +67,35 @@ class ChatService:
             return MessageType.SEARCH_END
         return MessageType.TOOL_END
 
+    def _parse_tool_output(self, tool_output) -> Dict:
+        """清洗工具输出，返回干净的字典格式"""
+        if not tool_output:
+            return {"raw": "", "error": "No output from tool"}
+        
+        if isinstance(tool_output, dict):
+            return tool_output
+        
+        output_str = str(tool_output)
+        
+        if hasattr(tool_output, 'content'):
+            content = tool_output.content
+            if isinstance(content, str):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return {"content": str(content)}
+        
+        try:
+            parsed = json.loads(output_str)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"raw": output_str}
+        except (json.JSONDecodeError, TypeError):
+            return {"raw": output_str}
+
     async def chat(
         self,
         content: str,
@@ -275,6 +304,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         config: RunnableConfig = {"configurable": {"thread_id": history_key}}
         agent = self._create_agent(deep_thinking=False)
         current_content = ""
+        current_reasoning_content = ""
         
         async for event in agent.astream_events(
             {"messages": messages},
@@ -292,8 +322,9 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     elif isinstance(chunk.content, list):
                         text_content = ""
                         for part in chunk.content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                text_content += part.get("text", "")
+                            if isinstance(part, dict):
+                                if part.get("type") == "text":
+                                    text_content += part.get("text", "")
                     else:
                         text_content = ""
                     
@@ -304,7 +335,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                             content=text_content,
                             message_id=message_id,
                             type=MessageType.TEXT,
-                            finish_status=False
+                            finish_status=False,
+                            reasoning_content=None
                         )
                         await sse_manager.send_message(
                             uid,
@@ -334,11 +366,9 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                 tool_output = event["data"].get("output", "")
                 tool_name = event.get("name", "")
                 tool_end_type = self._get_tool_end_type(tool_name)
-
-                if isinstance(tool_output, str):
-                    tool_result = tool_output
-                else:
-                    tool_result = str(tool_output)
+                
+                cleaned_result = self._parse_tool_output(tool_output)
+                tool_result = cleaned_result.get("content") or cleaned_result.get("raw") or str(tool_output)
 
                 stream_chunk = StreamChunk(
                     status=False,
@@ -352,6 +382,29 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     message_id,
                     json.dumps(stream_chunk.dict(), ensure_ascii=False)
                 )
+
+            elif kind == "on_agent_finish":
+                final_output = event["data"].get("output", "")
+                if final_output:
+                    final_text = (
+                        str(final_output.content) 
+                        if hasattr(final_output, 'content') 
+                        else str(final_output)
+                    )
+                    if final_text and final_text != current_content:
+                        current_content += final_text
+                        stream_chunk = StreamChunk(
+                            status=False,
+                            content=final_text,
+                            message_id=message_id,
+                            type=MessageType.TEXT,
+                            finish_status=False
+                        )
+                        await sse_manager.send_message(
+                            uid,
+                            message_id,
+                            json.dumps(stream_chunk.dict(), ensure_ascii=False)
+                        )
 
         if current_content:
             self.conversation_history[history_key].append(AIMessage(content=current_content))
