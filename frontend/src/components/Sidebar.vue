@@ -1,34 +1,37 @@
-<script setup>
-import { computed } from 'vue'
-import { Robot2Icon } from 'tdesign-icons-vue-next'
-
-
-
+<script setup>import { computed } from 'vue';
+import { Robot2Icon, UserIcon, LogoutIcon } from 'tdesign-icons-vue-next';
 const props = defineProps({
-  collapsed: Boolean,
-  conversations: Array,
-  currentConversation: Object
-})
-
-const emit = defineEmits(['toggle', 'select', 'new'])
-
+ collapsed: Boolean,
+ conversations: Array,
+ currentConversation: Object,
+ currentUser: Object
+});
+const emit = defineEmits(['toggle', 'select', 'new', 'logout']);
 const formatTime = (timestamp) => {
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  
-  if (diff < 60000) {
-    return '刚刚'
-  } else if (diff < 3600000) {
-    return Math.floor(diff / 60000) + '分钟前'
-  } else if (diff < 86400000) {
-    return Math.floor(diff / 3600000) + '小时前'
-  } else if (diff < 604800000) {
-    return Math.floor(diff / 86400000) + '天前'
-  } else {
-    return date.getMonth() + 1 + '/' + date.getDate()
-  }
-}
+ const date = new Date(timestamp);
+ const now = new Date();
+ const diff = now.getTime() - date.getTime();
+ if (diff < 60000) {
+ return '刚刚';
+ }
+ else if (diff < 3600000) {
+ return Math.floor(diff / 60000) + '分钟前';
+ }
+ else if (diff < 86400000) {
+ return Math.floor(diff / 3600000) + '小时前';
+ }
+ else if (diff < 604800000) {
+ return Math.floor(diff / 86400000) + '天前';
+ }
+ else {
+ return date.getMonth() + 1 + '/' + date.getDate();
+ }
+};
+const displayName = computed(() => {
+ if (!props.currentUser)
+ return '';
+ return props.currentUser.username || props.currentUser.uid || '用户';
+});
 </script>
 
 <template>
@@ -96,6 +99,21 @@ const formatTime = (timestamp) => {
         </svg>
       </div>
     </div>
+
+    <div v-if="currentUser" class="user-section">
+      <div v-if="!collapsed" class="user-info" @click="emit('logout')">
+        <div class="user-avatar">
+          <user-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2" />
+        </div>
+        <div class="user-details">
+          <div class="user-name">{{ displayName }}</div>
+          <div class="logout-text">点击退出登录</div>
+        </div>
+      </div>
+      <button v-else class="logout-btn-mini" @click="emit('logout')" title="退出登录">
+        <logout-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2" />
+      </button>
+    </div>
     
     <button 
       class="toggle-btn"
@@ -136,7 +154,6 @@ const formatTime = (timestamp) => {
 }
 
 .logo {
-
   display: flex;
   align-items: center;
   gap: 12px;
@@ -289,6 +306,85 @@ const formatTime = (timestamp) => {
 .conversation-item-mini svg {
   width: 20px;
   height: 20px;
+}
+
+.user-section {
+  padding: 12px 16px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.user-info:hover {
+  background: #f5f5f5;
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e6f7ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1890ff;
+}
+
+.user-avatar svg {
+  width: 18px;
+  height: 18px;
+}
+
+.user-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-text {
+  font-size: 12px;
+  color: #999;
+}
+
+.logout-btn-mini {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f5f5f5;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin: 0 auto;
+}
+
+.logout-btn-mini:hover {
+  background: #fff2f0;
+  color: #f5222d;
+}
+
+.logout-btn-mini svg {
+  width: 18px;
+  height: 18px;
 }
 
 .toggle-btn {

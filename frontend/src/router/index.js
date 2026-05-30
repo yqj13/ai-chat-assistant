@@ -1,17 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ChatPage from '../views/ChatPage.vue'
 
-
+const routes = [
+  {
+    path: '/',
+    name: 'chat',
+    component: ChatPage
+  }
+]
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
-    {
-      path: '/',
-      name: 'chat',
-      component: ChatPage
-    },
-  ]
+  routes
 })
 
 export default router

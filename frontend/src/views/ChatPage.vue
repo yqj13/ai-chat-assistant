@@ -1,8 +1,14 @@
 <script setup>
-import { ref, provide, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, provide, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
+import { chatApi } from '../api/chat'
 import Sidebar from '../components/Sidebar.vue'
 import ChatMessages from '../components/ChatMessages.vue'
 import MessageInput from '../components/MessageInput.vue'
+
+const router = useRouter()
+const userStore = useUserStore()
 
 const sidebarCollapsed = ref(false)
 const currentConversation = ref(null)
@@ -10,20 +16,19 @@ const messages = ref([])
 const isStreaming = ref(false)
 const currentMessageId = ref(null)
 const lastSequence = ref(0)
-const uid = ref('1')
 
 const eventSource = ref(null)
 
-// 新增：记录占位消息的临时 id，用于在 SSE 中匹配
 const pendingPlaceholderId = ref(null)
 
-// 重连策略
 const reconnectAttempts = ref(0)
 const maxReconnectAttempts = 5
 const reconnectDelay = ref(1000)
 const reconnectTimer = ref(null)
 
-const localStorageKey = ref('1')
+const uid = computed(() => userStore.getUid())
+
+const localStorageKey = computed(() => `chat_state_${uid.value}`)
 
 const getStoredState = () => {
   try {
@@ -77,11 +82,21 @@ const createNewConversation = () => {
   selectConversation(newConv)
 }
 
+const handleLogout = async () => {
+  userStore.logout()
+  userStore.openLoginModal()
+}
+
 const findMessageIndex = (messageId) => {
   return messages.value.findIndex(m => m.id === messageId)
 }
 
 const handleSendMessage = async (message) => {
+  if (!uid.value) {
+    console.error('用户未登录')
+    return
+  }
+
   const content = typeof message === 'string' ? message : message.content
   const deepThinking = typeof message === 'object' ? message.deepThinking || false : false
   const webSearch = typeof message === 'object' ? message.webSearch || false : false
@@ -90,7 +105,6 @@ const handleSendMessage = async (message) => {
 
   isStreaming.value = true
 
-  // 1. 添加用户消息
   const userMessage = {
     id: 'msg_' + Date.now(),
     role: 'user',
@@ -101,9 +115,8 @@ const handleSendMessage = async (message) => {
   }
   messages.value.push(userMessage)
 
-  // 2. 立即添加一条空的助手消息（占位）
   const placeholderMessageId = 'pending_' + Date.now()
-  pendingPlaceholderId.value = placeholderMessageId  // ✅ 记录临时 id
+  pendingPlaceholderId.value = placeholderMessageId
 
   const assistantMessage = {
     id: placeholderMessageId,
@@ -117,26 +130,20 @@ const handleSendMessage = async (message) => {
   messages.value.push(assistantMessage)
 
   try {
-    const response = await fetch('http://localhost:8000/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: content.trim(),
-        uid: uid.value,
-        context_id: currentConversation.value?.id || null,
-        last_message_id: null,
-        deep_thinking: deepThinking,
-        web_search: webSearch
-      })
-    })
+    const result = await chatApi.sendMessage(
+      content.trim(),
+      uid.value,
+      currentConversation.value?.id || null,
+      null,
+      deepThinking,
+      webSearch
+    )
 
-    if (response.ok) {
-      const result = await response.json()
+    if (result.message_id) {
       currentMessageId.value = result.message_id
       lastSequence.value = 0
       setStoredState(result.message_id, 0)
 
-      // 3. 替换占位消息的 id
       const index = findMessageIndex(placeholderMessageId)
       if (index !== -1) {
         messages.value[index] = {
@@ -144,11 +151,10 @@ const handleSendMessage = async (message) => {
           id: result.message_id
         }
       }
-      pendingPlaceholderId.value = null  // ✅ 清除临时 id
+      pendingPlaceholderId.value = null
 
       console.log(`发送消息成功，message_id: ${result.message_id}`)
 
-      // 确保 SSE 连接存在
       if (!eventSource.value || eventSource.value.readyState === EventSource.CLOSED) {
         createStreamConnection()
       }
@@ -240,6 +246,11 @@ const scheduleReconnect = () => {
 }
 
 const createStreamConnection = () => {
+  if (!uid.value) {
+    console.error('用户未登录，无法建立SSE连接')
+    return
+  }
+
   if (eventSource.value) {
     eventSource.value.close()
     eventSource.value = null
@@ -277,22 +288,18 @@ const createStreamConnection = () => {
       const data = safeJsonParse(event.data)
       if (!data) return
 
-      // ✅ 忽略没有 message_id 的数据（心跳等）
       if (!data.message_id) return
 
-      // 更新 sequence
       if (data.sequence) {
         lastSequence.value = data.sequence
         setStoredState(data.message_id, data.sequence)
       }
 
-      // 消息完成
       if (data.status === true || data.finish_status === true) {
         isStreaming.value = false
         currentMessageId.value = null
         lastSequence.value = 0
         setStoredState(null, 0)
-
 
         const index = findMessageIndex(data.message_id)
         if (index !== -1) {
@@ -317,15 +324,11 @@ const createStreamConnection = () => {
         isStreaming.value = true
       }
 
-      // ✅ 核心修复：查找消息时，同时检查正式 id 和占位 id
       let index = findMessageIndex(data.message_id)
 
-      // 如果通过 message_id 找不到，检查是否有正在等待的占位消息
-      // （处理 SSE 在 fetch 返回前就推送数据的竞态情况）
       if (index === -1 && pendingPlaceholderId.value) {
         index = findMessageIndex(pendingPlaceholderId.value)
         if (index !== -1) {
-          // 将占位消息的 id 更新为真实 message_id
           messages.value[index] = {
             ...messages.value[index],
             id: data.message_id
@@ -335,10 +338,7 @@ const createStreamConnection = () => {
         }
       }
 
-      // ✅ 只有在断点续传场景（无占位消息）才创建新消息
       if (index === -1 && data.message_id) {
-        // 再次确认：确保不是因为占位消息尚未创建
-        // 只有当没有 pending 状态时才新建（真正的断点续传场景）
         if (!pendingPlaceholderId.value) {
           messages.value.push({
             id: data.message_id,
@@ -351,7 +351,6 @@ const createStreamConnection = () => {
           })
           index = messages.value.length - 1
         } else {
-          // 有 pending 但 id 不匹配，说明是旧消息的残留数据，忽略
           console.warn(`收到未知 message_id: ${data.message_id}，当前 pending: ${pendingPlaceholderId.value}，忽略`)
           return
         }
@@ -361,18 +360,15 @@ const createStreamConnection = () => {
 
       const existingMessage = messages.value[index]
 
-      // 收到内容时关闭 loading
       let newLoading = existingMessage.loading
       if (newLoading && (data.content || data.reasoning_content)) {
         newLoading = false
       }
 
-      // 处理内容 - 按顺序添加到 parts 数组
       let newParts = existingMessage.parts ? [...existingMessage.parts] : []
       let newReasoningContent = existingMessage.reasoningContent || ''
 
       if (data.type === 0 || data.type === undefined) {
-        // 普通文本内容
         if (data.reasoning_content) {
           newReasoningContent += data.reasoning_content
           messages.value[index].collapsed = false
@@ -383,10 +379,8 @@ const createStreamConnection = () => {
         }
         
         if (data.content) {
-          // 查找最后一个 part 的类型
           const lastPart = newParts.length > 0 ? newParts[newParts.length - 1] : null
           
-          // 如果最后一个 part 是文本，才追加；否则创建新的文本 part
           if (lastPart && lastPart.type === 'text') {
             lastPart.content += data.content
           } else {
@@ -399,13 +393,11 @@ const createStreamConnection = () => {
         }
         messages.value[index].toolCallsCollapsed = true
       } else {
-        // 工具调用内容
         if (data.content) {
           try {
             const toolData = JSON.parse(data.content)
             
             if (data.type === 1 || data.type === 3) {
-              // 工具开始调用
               newParts.push({
                 type: 'tool_call',
                 params: toolData,
@@ -414,12 +406,10 @@ const createStreamConnection = () => {
                 collapsed: true
               })
             } else {
-              // 工具执行完成，找到最近的未配对的 tool_call 并填入结果
               const lastToolCall = newParts.findLast(p => p.type === 'tool_call' && p.result === null)
               if (lastToolCall) {
                 lastToolCall.result = toolData
               } else {
-                // 如果没有找到对应的 tool_start，直接创建 tool_call
                 newParts.push({
                   type: 'tool_call',
                   params: null,
@@ -430,7 +420,6 @@ const createStreamConnection = () => {
               }
             }
           } catch (e) {
-            // 如果解析失败，当作普通文本处理
             newParts.push({
               type: 'text',
               content: data.content,
@@ -441,7 +430,6 @@ const createStreamConnection = () => {
         messages.value[index].toolCallsCollapsed = false
       }
 
-      // 替换整个对象触发响应式
       messages.value[index] = {
         ...existingMessage,
         parts: newParts,
@@ -472,8 +460,8 @@ const createStreamConnection = () => {
 }
 
 onMounted(() => {
-  // 修复：只恢复状态，不创建占位消息
-  // 占位消息应在 SSE 收到数据时按需创建（断点续传场景）
+  userStore.loadUserFromStorage()
+  
   const storedState = getStoredState()
   if (storedState && storedState.messageId) {
     console.log('检测到未完成的对话，尝试恢复')
@@ -501,19 +489,30 @@ onUnmounted(() => {
   }
 })
 
+watch(() => userStore.isLoggedIn, (loggedIn) => {
+  if (!loggedIn) {
+    userStore.openLoginModal()
+  }
+})
+
 provide('sidebarCollapsed', sidebarCollapsed)
 provide('toggleSidebar', toggleSidebar)
+provide('handleLogout', handleLogout)
+provide('currentUser', userStore.user)
 </script>
 
 <template>
   <div class="chat-page">
+    
     <Sidebar
       :collapsed="sidebarCollapsed"
       :conversations="conversations"
       :current-conversation="currentConversation"
+      :current-user="userStore.user"
       @toggle="toggleSidebar"
       @select="selectConversation"
       @new="createNewConversation"
+      @logout="handleLogout"
     />
 
     <div
@@ -574,7 +573,7 @@ provide('toggleSidebar', toggleSidebar)
 .chat-message-block {
   flex: 1;
   overflow-y: auto;
-  min-height: 0; /* ✅ 关键：flex子元素溢出修复 */
+  min-height: 0;
 }
 
 .empty-state {

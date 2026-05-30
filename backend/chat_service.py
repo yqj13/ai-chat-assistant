@@ -15,6 +15,8 @@ from config import settings
 from models import StreamChunk, MessageType
 from tools import create_tools
 from sse_manager import sse_manager
+from database import get_db_sync
+from db_service import db_service
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,34 @@ class ChatService:
             self.conversation_history[history_key] = []
 
         self.conversation_history[history_key].append(HumanMessage(content=content))
+        
+        # 保存用户消息到数据库
+        try:
+            db = get_db_sync()
+            user = db_service.get_or_create_user(db, uid)
+            session_id = context_id
+            if session_id:
+                session = db_service.get_session_by_id(db, session_id)
+                if not session:
+                    session = db_service.create_session(db, user.id, session_id)
+            else:
+                session_id = message_id
+                session = db_service.create_session(db, user.id, session_id, content[:50] if len(content) > 50 else content)
+            
+            # 创建用户消息
+            user_msg_id = f"{message_id}_user"
+            db_service.create_message(
+                db,
+                message_id=user_msg_id,
+                session_id=session_id,
+                user_id=user.id,
+                role="user",
+                content=content,
+                prompt=content
+            )
+            db.close()
+        except Exception as e:
+            logger.error(f"Failed to save user message to DB: {e}")
 
         task = asyncio.create_task(self._execute_stream(
             content,
@@ -129,7 +159,8 @@ class ChatService:
             message_id,
             history_key,
             deep_thinking,
-            web_search
+            web_search,
+            context_id
         ))
 
         task_key = f"{uid}:{message_id}"
@@ -146,7 +177,8 @@ class ChatService:
         message_id: str,
         history_key: str,
         deep_thinking: bool = False,
-        web_search: bool = False
+        web_search: bool = False,
+        context_id: Optional[str] = None
     ):
         try:
             init_chunk = StreamChunk(
@@ -182,7 +214,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     messages,
                     uid,
                     message_id,
-                    history_key
+                    history_key,
+                    context_id
                 )
             else:
                 # Otherwise use the normal agent with tools
@@ -191,7 +224,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     uid,
                     message_id,
                     history_key,
-                    web_search
+                    web_search,
+                    context_id
                 )
 
         except Exception as e:
@@ -216,7 +250,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         messages: List[Dict],
         uid: str,
         message_id: str,
-        history_key: str
+        history_key: str,
+        context_id: Optional[str] = None
     ):
         """Execute stream with deep thinking using direct OpenAI SDK"""
         client = AsyncOpenAI(
@@ -225,6 +260,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         )
         
         current_content = ""
+        current_reasoning_content = ""
         
         stream = await client.chat.completions.create(
             model=settings.MODEL_NAME,
@@ -241,6 +277,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                 
                 # Handle reasoning content
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                    current_reasoning_content += delta.reasoning_content
                     stream_chunk = StreamChunk(
                         status=False,
                         content="",
@@ -290,6 +327,27 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
             json.dumps(finish_chunk.dict(), ensure_ascii=False)
         )
         
+        # 保存 AI 消息到数据库
+        try:
+            db = get_db_sync()
+            user = db_service.get_user_by_uid(db, uid)
+            if user:
+                session_id = context_id or message_id
+                db_service.create_message(
+                    db,
+                    message_id=message_id,
+                    session_id=session_id,
+                    user_id=user.id,
+                    role="assistant",
+                    content=current_content,
+                    reasoning_content=current_reasoning_content,
+                    message_type=MessageType.TEXT,
+                    finish_status="stop"
+                )
+            db.close()
+        except Exception as e:
+            logger.error(f"Failed to save AI message to DB: {e}")
+        
         logger.info(f"Deep thinking execution completed for user {uid}, message_id {message_id}")
 
     async def _execute_agent_stream(
@@ -298,7 +356,8 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         uid: str,
         message_id: str,
         history_key: str,
-        web_search: bool
+        web_search: bool,
+        context_id: Optional[str] = None
     ):
         """Execute stream with agent and tools"""
         config: RunnableConfig = {"configurable": {"thread_id": history_key}}
@@ -361,6 +420,26 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     message_id,
                     json.dumps(stream_chunk.dict(), ensure_ascii=False)
                 )
+                
+                try:
+                    db = get_db_sync()
+                    user = db_service.get_user_by_uid(db, uid)
+                    if user:
+                        session_id = context_id or message_id
+                        db_service.create_message(
+                            db,
+                            message_id=f"{message_id}_tool_{tool_name}_start",
+                            session_id=session_id,
+                            user_id=user.id,
+                            role="tool",
+                            tool_name=tool_name,
+                            tool_input=json.dumps(tool_inputs, ensure_ascii=False),
+                            message_type=tool_type,
+                            finish_status="running"
+                        )
+                    db.close()
+                except Exception as e:
+                    logger.error(f"Failed to save tool start to DB: {e}")
 
             elif kind == "on_tool_end":
                 tool_output = event["data"].get("output", "")
@@ -382,6 +461,26 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
                     message_id,
                     json.dumps(stream_chunk.dict(), ensure_ascii=False)
                 )
+                
+                try:
+                    db = get_db_sync()
+                    user = db_service.get_user_by_uid(db, uid)
+                    if user:
+                        session_id = context_id or message_id
+                        db_service.create_message(
+                            db,
+                            message_id=f"{message_id}_tool_{tool_name}_end",
+                            session_id=session_id,
+                            user_id=user.id,
+                            role="tool",
+                            tool_name=tool_name,
+                            tool_output=tool_result,
+                            message_type=tool_end_type,
+                            finish_status="completed"
+                        )
+                    db.close()
+                except Exception as e:
+                    logger.error(f"Failed to save tool end to DB: {e}")
 
             elif kind == "on_agent_finish":
                 final_output = event["data"].get("output", "")
@@ -422,6 +521,27 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
             message_id,
             json.dumps(finish_chunk.dict(), ensure_ascii=False)
         )
+        
+        # 保存 AI 消息到数据库
+        try:
+            db = get_db_sync()
+            user = db_service.get_user_by_uid(db, uid)
+            if user:
+                session_id = context_id or message_id
+                db_service.create_message(
+                    db,
+                    message_id=message_id,
+                    session_id=session_id,
+                    user_id=user.id,
+                    role="assistant",
+                    content=current_content,
+                    reasoning_content=current_reasoning_content,
+                    message_type=MessageType.TEXT,
+                    finish_status="stop"
+                )
+            db.close()
+        except Exception as e:
+            logger.error(f"Failed to save AI message to DB: {e}")
 
         logger.info(f"Agent execution completed for user {uid}, message_id {message_id}")
 

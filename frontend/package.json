@@ -11,6 +11,7 @@
     "@shikijs/core": "^3.23.0",
     "@tdesign-vue-next/chat": "^0.5.2",
     "@types/node": "^25.9.1",
+    "axios": "^1.16.1",
     "cherry-markdown": "^0.11.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",

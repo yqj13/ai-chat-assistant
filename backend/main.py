@@ -1,14 +1,18 @@
-from fastapi import FastAPI, Query, Header
+from fastapi import FastAPI, Query, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import logging
+from sqlalchemy.orm import Session
 
 from chat_service import chat_service
 from sse_manager import sse_manager
 from agui_chat_service import agui_chat_service
 from agui_sse_manager import agui_sse_manager
+from database import init_db, get_db
+from db_service import db_service
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    logger.info("Database initialized")
 
 
 class ChatRequest(BaseModel):
@@ -184,6 +194,185 @@ async def agui_cleanup_user(uid: str):
 async def agui_cleanup_message(uid: str, message_id: str):
     """AgUI 协议 - 清理指定消息缓存"""
     await agui_sse_manager.cleanup_message(uid, message_id)
+    return JSONResponse(content={"status": "ok"})
+
+
+class LoginRequest(BaseModel):
+    uid: str
+    username: Optional[str] = None
+
+
+class CredentialLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class SessionCreateRequest(BaseModel):
+    uid: str
+    session_id: Optional[str] = None
+    title: Optional[str] = None
+
+
+class SessionUpdateRequest(BaseModel):
+    title: str
+
+
+@app.post("/api/user/register")
+async def user_register(request: RegisterRequest, db: Session = Depends(get_db)):
+    """用户注册接口"""
+    user = db_service.create_user(db, request.username, request.password)
+    if not user:
+        return JSONResponse(status_code=400, content={"error": "Username already exists"})
+    return JSONResponse(content={
+        "user_id": user.id,
+        "uid": user.uid,
+        "username": user.username,
+        "created_at": user.created_at.isoformat() if user.created_at else None
+    })
+
+
+@app.post("/api/user/login")
+async def user_login(request: CredentialLoginRequest, db: Session = Depends(get_db)):
+    """用户登录接口（用户名密码）"""
+    user = db_service.login_user(db, request.username, request.password)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Invalid username or password"})
+    return JSONResponse(content={
+        "user_id": user.id,
+        "uid": user.uid,
+        "username": user.username,
+        "created_at": user.created_at.isoformat() if user.created_at else None
+    })
+
+
+@app.post("/api/user/login/uid")
+async def user_login_by_uid(request: LoginRequest, db: Session = Depends(get_db)):
+    """用户登录/自动注册接口（通过uid）"""
+    user = db_service.get_or_create_user(db, request.uid, request.username)
+    return JSONResponse(content={
+        "user_id": user.id,
+        "uid": user.uid,
+        "username": user.username,
+        "created_at": user.created_at.isoformat() if user.created_at else None
+    })
+
+
+@app.get("/api/user/{uid}")
+async def get_user(uid: str, db: Session = Depends(get_db)):
+    """获取用户信息"""
+    user = db_service.get_user_by_uid(db, uid)
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    return JSONResponse(content={
+        "user_id": user.id,
+        "uid": user.uid,
+        "username": user.username,
+        "created_at": user.created_at.isoformat() if user.created_at else None
+    })
+
+
+@app.post("/api/session")
+async def create_session(request: SessionCreateRequest, db: Session = Depends(get_db)):
+    """创建新会话"""
+    user = db_service.get_user_by_uid(db, request.uid)
+    if not user:
+        user = db_service.get_or_create_user(db, request.uid)
+    session = db_service.create_session(db, user.id, request.session_id, request.title)
+    return JSONResponse(content={
+        "session_id": session.session_id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat() if session.created_at else None
+    })
+
+
+@app.get("/api/sessions/{uid}")
+async def get_user_sessions(uid: str, db: Session = Depends(get_db)):
+    """获取用户的所有会话"""
+    user = db_service.get_user_by_uid(db, uid)
+    if not user:
+        return JSONResponse(content=[])
+    sessions = db_service.get_user_sessions(db, user.id)
+    return JSONResponse(content=[
+        {
+            "session_id": s.session_id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None
+        }
+        for s in sessions
+    ])
+
+
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str, db: Session = Depends(get_db)):
+    """获取会话详情"""
+    session = db_service.get_session_by_id(db, session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    return JSONResponse(content={
+        "session_id": session.session_id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None
+    })
+
+
+@app.put("/api/session/{session_id}")
+async def update_session(session_id: str, request: SessionUpdateRequest, db: Session = Depends(get_db)):
+    """更新会话标题"""
+    session = db_service.update_session_title(db, session_id, request.title)
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    return JSONResponse(content={
+        "session_id": session.session_id,
+        "title": session.title,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None
+    })
+
+
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str, db: Session = Depends(get_db)):
+    """删除会话"""
+    success = db_service.delete_session(db, session_id)
+    if not success:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+    return JSONResponse(content={"status": "ok"})
+
+
+@app.get("/api/messages/{session_id}")
+async def get_session_messages(session_id: str, limit: Optional[int] = None, db: Session = Depends(get_db)):
+    """获取会话的所有消息"""
+    messages = db_service.get_session_messages(db, session_id, limit)
+    return JSONResponse(content=[
+        {
+            "message_id": m.message_id,
+            "role": m.role,
+            "content": m.content,
+            "prompt": m.prompt,
+            "reasoning_content": m.reasoning_content,
+            "tool_name": m.tool_name,
+            "tool_input": m.tool_input,
+            "tool_output": m.tool_output,
+            "message_type": m.message_type,
+            "time": m.time.isoformat() if m.time else None,
+            "sequence": m.sequence,
+            "finish_status": m.finish_status
+        }
+        for m in messages
+    ])
+
+
+@app.delete("/api/message/{message_id}")
+async def delete_message(message_id: str, db: Session = Depends(get_db)):
+    """删除消息"""
+    success = db_service.delete_message(db, message_id)
+    if not success:
+        return JSONResponse(status_code=404, content={"error": "Message not found"})
     return JSONResponse(content={"status": "ok"})
 
 
