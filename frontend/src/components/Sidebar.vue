@@ -1,12 +1,12 @@
 <script setup>import { computed } from 'vue';
-import { Robot2Icon, UserIcon, LogoutIcon } from 'tdesign-icons-vue-next';
+import { Robot2Icon, UserIcon, LogoutIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 const props = defineProps({
  collapsed: Boolean,
  conversations: Array,
  currentConversation: Object,
  currentUser: Object
 });
-const emit = defineEmits(['toggle', 'select', 'new', 'logout']);
+const emit = defineEmits(['toggle', 'select', 'new', 'delete', 'logout']);
 const formatTime = (timestamp) => {
  const date = new Date(timestamp);
  const now = new Date();
@@ -32,6 +32,12 @@ const displayName = computed(() => {
  return '';
  return props.currentUser.username || props.currentUser.uid || '用户';
 });
+const handleDelete = (conv, event) => {
+ event.stopPropagation();
+ if (window.confirm(`确认删除会话 "${conv.title}"？该操作不可恢复。`)) {
+ emit('delete', conv);
+ }
+};
 </script>
 
 <template>
@@ -61,6 +67,9 @@ const displayName = computed(() => {
     </button>
     
     <div class="conversation-list" v-if="!collapsed">
+      <div v-if="!conversations || conversations.length === 0" class="empty-conv">
+        暂无会话，点击上方"新建对话"开始
+      </div>
       <div 
         v-for="conv in conversations" 
         :key="conv.id"
@@ -82,6 +91,9 @@ const displayName = computed(() => {
         <div class="conv-time">
           {{ formatTime(conv.timestamp) }}
         </div>
+        <button class="conv-delete-btn" title="删除会话" @click="handleDelete(conv, $event)">
+          <delete-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2" />
+        </button>
       </div>
     </div>
     
@@ -214,14 +226,55 @@ const displayName = computed(() => {
   cursor: pointer;
   transition: background 0.2s;
   margin-bottom: 4px;
+  position: relative;
 }
 
 .conversation-item:hover {
   background: #f5f5f5;
 }
 
+.conversation-item:hover .conv-delete-btn {
+  opacity: 1;
+}
+
 .conversation-item.active {
   background: #e6f7ff;
+}
+
+.conv-delete-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.conv-delete-btn:hover {
+  background: #fff2f0;
+  color: #f5222d;
+}
+
+.conv-delete-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.empty-conv {
+  padding: 16px;
+  font-size: 12px;
+  color: #bbb;
+  text-align: center;
 }
 
 .conv-icon {

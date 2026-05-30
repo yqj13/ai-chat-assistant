@@ -236,6 +236,34 @@ async def user_register(request: RegisterRequest, db: Session = Depends(get_db))
     })
 
 
+@app.post("/api/user/auth")
+async def user_auth(request: CredentialLoginRequest, db: Session = Depends(get_db)):
+    """用户认证接口（注册+登录合一）：
+    - 用户名不存在：自动注册并登录
+    - 用户名存在：校验密码登录
+    返回字段包含 is_new_user 用于前端区分本次是注册还是登录
+    """
+    existing = db_service.get_user_by_username(db, request.username)
+    if existing:
+        user = db_service.login_user(db, request.username, request.password)
+        if not user:
+            return JSONResponse(status_code=401, content={"error": "Invalid username or password"})
+        is_new_user = False
+    else:
+        user = db_service.create_user(db, request.username, request.password)
+        if not user:
+            return JSONResponse(status_code=400, content={"error": "Failed to create user"})
+        is_new_user = True
+
+    return JSONResponse(content={
+        "user_id": user.id,
+        "uid": user.uid,
+        "username": user.username,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_new_user": is_new_user
+    })
+
+
 @app.post("/api/user/login")
 async def user_login(request: CredentialLoginRequest, db: Session = Depends(get_db)):
     """用户登录接口（用户名密码）"""

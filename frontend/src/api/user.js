@@ -1,4 +1,4 @@
-import { get, post } from '../utils/request'
+import { get, post, put, del } from '../utils/request'
 
 export const userApi = {
   register: (username, password) => {
@@ -30,11 +30,11 @@ export const userApi = {
   },
 
   updateSession: (sessionId, title) => {
-    return post(`/session/${sessionId}`, { title })
+    return put(`/session/${sessionId}`, { title })
   },
 
   deleteSession: (sessionId) => {
-    return post(`/session/${sessionId}`)
+    return del(`/session/${sessionId}`)
   },
 
   getSessionMessages: (sessionId, limit = null) => {
@@ -42,7 +42,7 @@ export const userApi = {
   },
 
   deleteMessage: (messageId) => {
-    return post(`/message/${messageId}`)
+    return del(`/message/${messageId}`)
   }
 }
 

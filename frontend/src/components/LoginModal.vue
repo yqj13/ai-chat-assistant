@@ -103,8 +103,14 @@ const open = () => {
   dialogVisible.value = true
 }
 
+// 添加close方法，以便外部可以关闭模态框
+const close = () => {
+  handleClose()
+}
+
 defineExpose({
-  open
+  open,
+  close
 })
 
 watch(() => props.visible, (val) => {
