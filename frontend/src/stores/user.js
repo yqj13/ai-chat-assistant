@@ -11,8 +11,7 @@ export const useUserStore = defineStore('user', () => {
     const login = useLogin()
     login.open({
       onConfirm: (data) => {
-        user.value = data
-        localStorage.setItem('user', JSON.stringify(data))
+        setUserInfo(data)
         if (typeof onSuccess === 'function') {
           onSuccess(data)
         }
@@ -62,9 +61,25 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  const logout = () => {
+  const logout = (options = {}) => {
+    const { reopenLogin = true } = options
     user.value = null
     localStorage.removeItem('user')
+
+    // 清理与该用户相关的本地缓存（消息断点续传、未完成的对话等）
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('chat_state_')) {
+          localStorage.removeItem(key)
+        }
+      })
+    } catch (e) {
+      console.error('[user.logout] clear cache error:', e)
+    }
+
+    if (reopenLogin) {
+      openLoginModal()
+    }
   }
 
   const loadUserFromStorage = () => {

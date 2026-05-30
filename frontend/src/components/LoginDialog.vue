@@ -18,11 +18,7 @@
               <user-icon :fill-color="'transparent'" :stroke-color="'#999'" :stroke-width="1.5" />
               用户名
             </label>
-            <t-input
-              v-model="username"
-              placeholder="请输入用户名"
-              :disabled="loading"
-            />
+            <t-input v-model="username" placeholder="请输入用户名" :disabled="loading" />
           </div>
 
           <div class="form-group">
@@ -30,12 +26,7 @@
               <lock-on-icon :fill-color="'transparent'" :stroke-color="'#999'" :stroke-width="1.5" />
               密码
             </label>
-            <t-input
-              v-model="password"
-              type="password"
-              placeholder="请输入密码"
-              :disabled="loading"
-            />
+            <t-input v-model="password" type="password" placeholder="请输入密码" :disabled="loading" />
           </div>
 
           <div v-if="errorMessage" class="error-message">
@@ -44,19 +35,13 @@
         </form>
 
         <div class="dialog-actions">
-          <t-button
-            variant="outline"
-            :disabled="loading"
-            @click="onGuest"
-          >
-            游客模式
-          </t-button>
-          <t-button
-            type="primary"
-            :loading="loading"
-            :disabled="!canSubmit || loading"
-            @click="onConfirm"
-          >
+          <t-tooltip content="系统随机分配账号，不能保留历史会话，后续可能会有额度限制" placement="left">
+            <t-button variant="outline" :disabled="loading" @click="onGuest">
+              游客模式
+            </t-button>
+          </t-tooltip>
+
+          <t-button type="primary" :loading="loading" :disabled="!canSubmit || loading" @click="onConfirm">
             登录 / 注册
           </t-button>
         </div>
@@ -68,7 +53,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { UserIcon, LockOnIcon, Robot2Icon } from 'tdesign-icons-vue-next'
-import { Button as TButton, Input as TInput } from 'tdesign-vue-next'
+import { Button as TButton, Input as TInput, Tooltip as TTooltip } from 'tdesign-vue-next'
 import { userApi } from '../api/user'
 
 const props = defineProps({
@@ -83,6 +68,10 @@ const props = defineProps({
   onCancel: {
     type: Function,
     required: true
+  },
+  closeOnOverlayClick: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -142,7 +131,9 @@ async function onGuest() {
 function onCancel() {
   if (loading.value) return
   props.onCancel()
-  visible.value = false
+  if (props.closeOnOverlayClick) {
+    visible.value = false
+  }
 }
 </script>
 

@@ -242,8 +242,25 @@ const deleteConversation = async (conv) => {
 }
 
 const handleLogout = async () => {
+  conversations.value = []
+  currentConversation.value = null
+  messages.value = []
+  currentMessageId.value = null
+  lastSequence.value = 0
+  isStreaming.value = false
+  pendingPlaceholderId.value = null
+
+  if (eventSource.value) {
+    eventSource.value.close()
+    eventSource.value = null
+  }
+  if (reconnectTimer.value) {
+    clearTimeout(reconnectTimer.value)
+    reconnectTimer.value = null
+  }
+
+  // logout 内部会清理 localStorage 并自动弹出登录框（单例，不会重复弹）
   userStore.logout()
-  userStore.openLoginModal()
 }
 
 const findMessageIndex = (messageId) => {
@@ -670,11 +687,17 @@ onUnmounted(() => {
   }
 })
 
-watch(() => userStore.isLoggedIn, (loggedIn) => {
+watch(() => userStore.isLoggedIn, async (loggedIn) => {
   if (!loggedIn) {
     userStore.openLoginModal()
   } else {
-    loadConversations()
+    await loadConversations()
+    if (conversations.value.length > 0 && !currentConversation.value) {
+      await selectConversation(conversations.value[0])
+    }
+    if (!eventSource.value) {
+      createStreamConnection()
+    }
   }
 })
 
