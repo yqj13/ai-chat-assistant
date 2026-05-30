@@ -49,7 +49,7 @@ watch(() => props.disabled, (newVal) => {
 <template>
   <div class="message-input-container">
     <div class="input-wrapper">
-      <t-chat-sender v-model="inputText" :loading="loading" :textarea-props="{
+      <t-chat-sender v-login v-model="inputText" :loading="loading" :textarea-props="{
         placeholder: '请输入消息...',
       }" @send="handleSend" @stop="onStop" @keydown="handleKeydown">
         <template #footer-prefix>

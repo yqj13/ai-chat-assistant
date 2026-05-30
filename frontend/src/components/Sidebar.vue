@@ -56,6 +56,7 @@ const handleDelete = (conv, event) => {
     </div>
     
     <button 
+      v-login
       class="new-conversation-btn"
       @click="emit('new')"
     >
