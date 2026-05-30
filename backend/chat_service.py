@@ -38,6 +38,10 @@ class ChatService:
             llm_config["extra_body"] = {
                 "thinking": {"type": "enabled"}
             }
+        else:
+            llm_config["extra_body"] = {
+                "thinking": {"type": "disabled"}
+            }
         
         return ChatOpenAI(**llm_config)
 
@@ -275,7 +279,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         async for event in agent.astream_events(
             {"messages": messages},
             config=config,
-            version="v1"
+            version="v2"
         ):
             kind = event["event"]
 
