@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     BOCHA_API_URL: str = "https://api.bocha.cn/v1/web-search"
     BOCHA_API_KEY: str = "sk-05ee5e6c56614bb2a3f8eb263150f975"
     
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 3306
+    DB_USER: str = "root"
+    DB_PASSWORD: str = "111111"
+    DB_NAME: str = "ai_chat"
+    
     class Config:
         env_file = ".env"
 
