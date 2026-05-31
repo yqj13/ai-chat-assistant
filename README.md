@@ -100,6 +100,92 @@ npm run format       # 代码格式化
 **后端 API 文档：**
 启动后端服务后，访问 `http://localhost:8000/docs` 查看自动生成的 API 文档。
 
+## 数据库操作指南
+
+### 环境要求
+
+- MySQL 5.7+
+- 需要创建数据库并配置正确的用户权限
+
+### 数据库配置
+
+1. **复制环境变量示例文件：**
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
+2. **编辑** **`.env`** **文件，添加数据库配置：**
+   ```bash
+   # 数据库配置
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_NAME=ai_chat
+   DB_USER=your_db_user
+   DB_PASSWORD=your_db_password
+   ```
+
+### 数据库初始化
+
+**方法一：使用 SQL 脚本初始化**
+
+```bash
+# 登录 MySQL
+mysql -u your_db_user -p
+
+# 创建数据库和表
+source backend/init_database.sql
+```
+
+**方法二：使用Navicat导入**
+
+从Navicat导入数据库文件 `ai_chat.sql`。
+
+### 数据库表结构
+
+数据库包含三张核心表：
+
+**users（用户表）**
+
+| 字段             | 类型           | 说明          |
+| -------------- | ------------ | ----------- |
+| id             | INT          | 主键，自增       |
+| uid            | VARCHAR(255) | 用户唯一标识，唯一索引 |
+| username       | VARCHAR(255) | 用户名，唯一索引    |
+| password\_hash | VARCHAR(512) | 密码哈希值       |
+| created\_at    | DATETIME     | 创建时间        |
+| updated\_at    | DATETIME     | 更新时间        |
+
+**sessions（会话表）**
+
+| 字段          | 类型           | 说明          |
+| ----------- | ------------ | ----------- |
+| id          | INT          | 主键，自增       |
+| session\_id | VARCHAR(255) | 会话唯一标识，唯一索引 |
+| u\_id       | INT          | 关联用户 ID     |
+| title       | VARCHAR(500) | 会话标题        |
+| created\_at | DATETIME     | 创建时间        |
+| updated\_at | DATETIME     | 更新时间        |
+
+**messages（消息表）**
+
+| 字段                 | 类型           | 说明                      |
+| ------------------ | ------------ | ----------------------- |
+| id                 | INT          | 主键，自增                   |
+| message\_id        | VARCHAR(255) | 消息唯一标识，唯一索引             |
+| session\_id        | VARCHAR(255) | 关联会话 ID                 |
+| u\_id              | INT          | 关联用户 ID                 |
+| role               | VARCHAR(50)  | 角色（user/assistant/tool） |
+| content            | TEXT         | 消息内容                    |
+| reasoning\_content | TEXT         | 深度思考内容                  |
+| tool\_name         | VARCHAR(255) | 工具名称                    |
+| tool\_input        | TEXT         | 工具输入参数                  |
+| tool\_output       | TEXT         | 工具输出结果                  |
+| time               | DATETIME     | 创建时间                    |
+| sequence           | INT          | 消息序号（用于断点续传）            |
+| finish\_status     | VARCHAR(50)  | 完成状态                    |
+
+```
+
 ## 功能点
 
 ### 已实现功能
@@ -140,6 +226,7 @@ npm run format       # 代码格式化
 - **ChatResponse**: 聊天响应，包含 AI 回复
 
 ### 前端设计
+
 - 使用 Vue 3 Composition API
 - Pinia 进行状态管理
 - Vue Router 管理路由
@@ -150,6 +237,7 @@ npm run format       # 代码格式化
 ### 1. 深度思考 (Deep Thinking)
 
 **方案设计**:
+
 - 通过 OpenAI SDK 直接调用支持 thinking 模式的模型
 - 在请求中设置 `extra_body={"thinking": {"type": "enabled"}}`
 - 流式接收 `reasoning_content` 并实时展示
@@ -158,6 +246,7 @@ npm run format       # 代码格式化
 **核心代码**:
 
 后端 ([`backend/chat_service.py`](file:///d:/ai_chat/backend/chat_service.py#L300-L403)):
+
 ```python
 async def _execute_deep_thinking_stream(self, messages, uid, message_id, history_key, context_id):
     client = AsyncOpenAI(base_url=settings.API_URL, api_key=settings.API_KEY)
@@ -180,6 +269,7 @@ async def _execute_deep_thinking_stream(self, messages, uid, message_id, history
 ```
 
 前端 ([`frontend/src/components/ChatMessages.vue`](file:///d:/ai_chat/frontend/src/components/ChatMessages.vue#L14-L16)):
+
 ```vue
 <t-chat-thinking 
     :content="{ title: msg.thinking ? '思考中' : '思考完成', text: msg.reasoningContent }"
@@ -191,6 +281,7 @@ async def _execute_deep_thinking_stream(self, messages, uid, message_id, history
 ### 2. 联网查询 (Web Search)
 
 **方案设计**:
+
 - 集成博查 AI 搜索 API
 - 支持用户强制触发搜索（`web_search=true`）
 - 搜索结果以列表形式展示，包含标题、链接、摘要和站点名称
@@ -199,6 +290,7 @@ async def _execute_deep_thinking_stream(self, messages, uid, message_id, history
 **核心代码**:
 
 工具定义 ([`backend/tools.py`](file:///d:/ai_chat/backend/tools.py#L115-L190)):
+
 ```python
 @tool("web_search", args_schema=SearchInput)
 def search_web(query: str, num_results: int = 3) -> str:
@@ -213,6 +305,7 @@ def search_web(query: str, num_results: int = 3) -> str:
 ```
 
 前端展示 ([`frontend/src/components/ChatMessages.vue`](file:///d:/ai_chat/frontend/src/components/ChatMessages.vue#L76-L85)):
+
 ```vue
 <div v-else-if="part.result.tool === 'web_search'" class="result-table">
     <div v-for="(item, idx) in getSearchTableData({ data: part.result })" :key="idx" class="search-result-item">
@@ -229,6 +322,7 @@ def search_web(query: str, num_results: int = 3) -> str:
 ### 3. 工具调用 (Tool Calling)
 
 **方案设计**:
+
 - 使用 LangChain 构建 Agent
 - 支持天气查询、计算器、时间查询、网络搜索等工具
 - 通过 `astream_events` 实时捕获工具调用事件
@@ -237,12 +331,14 @@ def search_web(query: str, num_results: int = 3) -> str:
 **核心代码**:
 
 工具创建 ([`backend/tools.py`](file:///d:/ai_chat/backend/tools.py#L237-L238)):
+
 ```python
 def create_tools():
     return [get_weather, search_web, calculate, get_current_time]
 ```
 
 Agent 执行 ([`backend/chat_service.py`](file:///d:/ai_chat/backend/chat_service.py#L431-L609)):
+
 ```python
 async def _execute_agent_stream(self, messages, uid, message_id, history_key, web_search, context_id):
     agent = self._create_agent(deep_thinking=False)
@@ -263,6 +359,7 @@ async def _execute_agent_stream(self, messages, uid, message_id, history_key, we
 ### 4. 短期记忆 (Short-term Memory)
 
 **方案设计**:
+
 - 使用 `SSEManager` 管理流式消息的内存缓存
 - 支持断点续传，通过 `sequence` 编号和 `message_id` 追踪消息状态
 - 连接断开后可从缓存中重放未完成的消息
@@ -271,6 +368,7 @@ async def _execute_agent_stream(self, messages, uid, message_id, history_key, we
 **核心代码**:
 
 SSE 管理 ([`backend/sse_manager.py`](file:///d:/ai_chat/backend/sse_manager.py#L10-L179)):
+
 ```python
 class SSEManager:
     def __init__(self):
@@ -288,6 +386,7 @@ class SSEManager:
 ```
 
 前端状态管理 ([`frontend/src/utils/index.js`](file:///d:/ai_chat/frontend/src/utils/index.js)):
+
 ```javascript
 class ChatStateManager {
     setStreamState(messageId, sequence) {
@@ -303,6 +402,7 @@ class ChatStateManager {
 ### 5. 对话管理 (Conversation Management)
 
 **方案设计**:
+
 - 使用 MySQL 数据库持久化用户、会话和消息数据
 - 支持多会话管理，用户可创建、切换、删除会话
 - 会话列表按时间排序，自动生成会话标题
@@ -311,6 +411,7 @@ class ChatStateManager {
 **核心代码**:
 
 数据库模型 ([`backend/database.py`](file:///d:/ai_chat/backend/database.py#L10-L60)):
+
 ```python
 class User(Base):
     __tablename__ = "users"
@@ -335,6 +436,7 @@ class Message(Base):
 ```
 
 前端会话管理 ([`frontend/src/composables/useConversation.js`](file:///d:/ai_chat/frontend/src/composables/useConversation.js#L45-L104)):
+
 ```javascript
 const createNewConversation = async () => {
     const session = await userApi.createSession(uid.value, null, '新对话');
