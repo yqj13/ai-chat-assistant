@@ -30,6 +30,7 @@ const reconnectTimer = ref(null)
 const uid = computed(() => userStore.getUid())
 
 const localStorageKey = computed(() => `chat_state_${uid.value}`)
+const localStorageConvKey = computed(() => `chat_conv_${uid.value}`)
 
 const getStoredState = () => {
   try {
@@ -53,6 +54,30 @@ const setStoredState = (messageId, sequence) => {
     }
   } catch (e) {
     console.error('写入 localStorage 失败:', e)
+  }
+}
+
+const getStoredConversation = () => {
+  try {
+    const data = localStorage.getItem(localStorageConvKey.value)
+    return data ? JSON.parse(data) : null
+  } catch (e) {
+    console.error('读取会话 localStorage 失败:', e)
+    return null
+  }
+}
+
+const setStoredConversation = (convId) => {
+  try {
+    if (convId) {
+      localStorage.setItem(localStorageConvKey.value, JSON.stringify({
+        conversationId: convId
+      }))
+    } else {
+      localStorage.removeItem(localStorageConvKey.value)
+    }
+  } catch (e) {
+    console.error('写入会话 localStorage 失败:', e)
   }
 }
 
@@ -200,6 +225,7 @@ const loadConversationMessages = async (conv) => {
 const selectConversation = async (conv) => {
   if (currentConversation.value?.id === conv.id) return
   currentConversation.value = conv
+  setStoredConversation(conv.id)
   await loadConversationMessages(conv)
 }
 
@@ -215,6 +241,7 @@ const createNewConversation = async () => {
     }
     conversations.value.unshift(newConv)
     currentConversation.value = newConv
+    setStoredConversation(newConv.id)
     messages.value = []
   } catch (e) {
     console.error('创建会话失败:', e)
@@ -231,8 +258,10 @@ const deleteConversation = async (conv) => {
       const next = conversations.value[0] || null
       currentConversation.value = next
       if (next) {
+        setStoredConversation(next.id)
         await loadConversationMessages(next)
       } else {
+        setStoredConversation(null)
         messages.value = []
       }
     }
@@ -258,6 +287,9 @@ const handleLogout = async () => {
     clearTimeout(reconnectTimer.value)
     reconnectTimer.value = null
   }
+
+  // 清除存储的会话信息
+  setStoredConversation(null)
 
   // logout 内部会清理 localStorage 并自动弹出登录框（单例，不会重复弹）
   userStore.logout()
@@ -672,7 +704,16 @@ onMounted(async () => {
 
   await loadConversations()
   if (conversations.value.length > 0) {
-    await selectConversation(conversations.value[0])
+    // 尝试恢复之前选中的会话，如果没有则选择第一个
+    const storedConv = getStoredConversation()
+    let targetConv = null
+    if (storedConv && storedConv.conversationId) {
+      targetConv = conversations.value.find(c => c.id === storedConv.conversationId)
+    }
+    if (!targetConv) {
+      targetConv = conversations.value[0]
+    }
+    await selectConversation(targetConv)
   }
 })
 
