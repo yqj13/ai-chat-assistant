@@ -116,6 +116,7 @@ import { Robot2Icon, UserIcon, ChevronDownSIcon, ChevronUpIcon, AiToolIcon } fro
 import 'katex/dist/katex.min.css'
 import userAvatar from '../assets/user-avatar.png'
 import aiAvatar from '../assets/ai-avatar.png'
+import { formatTime } from '../utils'
 
 const props = defineProps({
   messages: {
@@ -166,32 +167,6 @@ const options = computed(() => ({
     } : undefined,
   },
 }))
-
-const formatTime = (timestamp) => {
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-
-  if (diff < 60000) {
-    return '刚刚'
-  } else if (diff < 3600000) {
-    return Math.floor(diff / 60000) + '分钟前'
-  } else if (diff < 86400000) {
-    const hours = date.getHours().toString().padStart(2, '0')
-    const minutes = date.getMinutes().toString().padStart(2, '0')
-    return `今天 ${hours}:${minutes}`
-  } else if (diff < 172800000) {
-    const hours = date.getHours().toString().padStart(2, '0')
-    const minutes = date.getMinutes().toString().padStart(2, '0')
-    return `昨天 ${hours}:${minutes}`
-  } else {
-    const month = (date.getMonth() + 1).toString().padStart(2, '0')
-    const day = date.getDate().toString().padStart(2, '0')
-    const hours = date.getHours().toString().padStart(2, '0')
-    const minutes = date.getMinutes().toString().padStart(2, '0')
-    return `${month}/${day} ${hours}:${minutes}`
-  }
-}
 
 const getToolTitle = (tool) => {
   const toolNameMap = {

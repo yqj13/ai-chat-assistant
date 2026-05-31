@@ -1,6 +1,7 @@
 <script setup>import { computed } from 'vue';
 import { Robot2Icon, UserIcon, LogoutIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import logoImage from '../assets/logo-1.png';
+import { formatTimeShort } from '../utils';
 const props = defineProps({
  collapsed: Boolean,
  conversations: Array,
@@ -8,26 +9,7 @@ const props = defineProps({
  currentUser: Object
 });
 const emit = defineEmits(['toggle', 'select', 'new', 'delete', 'logout']);
-const formatTime = (timestamp) => {
- const date = new Date(timestamp);
- const now = new Date();
- const diff = now.getTime() - date.getTime();
- if (diff < 60000) {
- return '刚刚';
- }
- else if (diff < 3600000) {
- return Math.floor(diff / 60000) + '分钟前';
- }
- else if (diff < 86400000) {
- return Math.floor(diff / 3600000) + '小时前';
- }
- else if (diff < 604800000) {
- return Math.floor(diff / 86400000) + '天前';
- }
- else {
- return date.getMonth() + 1 + '/' + date.getDate();
- }
-};
+const formatTime = formatTimeShort;
 const displayName = computed(() => {
  if (!props.currentUser)
  return '';

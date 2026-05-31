@@ -7,6 +7,7 @@ import { userApi } from '../api/user'
 import Sidebar from '../components/Sidebar.vue'
 import ChatMessages from '../components/ChatMessages.vue'
 import MessageInput from '../components/MessageInput.vue'
+import { ChatStateManager, mapServerMessagesToLocal, createUserMessage, createAssistantMessage, extractTextFromMessage } from '../utils'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -28,58 +29,7 @@ const reconnectDelay = ref(1000)
 const reconnectTimer = ref(null)
 
 const uid = computed(() => userStore.getUid())
-
-const localStorageKey = computed(() => `chat_state_${uid.value}`)
-const localStorageConvKey = computed(() => `chat_conv_${uid.value}`)
-
-const getStoredState = () => {
-  try {
-    const data = localStorage.getItem(localStorageKey.value)
-    return data ? JSON.parse(data) : null
-  } catch (e) {
-    console.error('读取 localStorage 失败:', e)
-    return null
-  }
-}
-
-const setStoredState = (messageId, sequence) => {
-  try {
-    if (messageId) {
-      localStorage.setItem(localStorageKey.value, JSON.stringify({
-        messageId,
-        sequence: sequence || 0
-      }))
-    } else {
-      localStorage.removeItem(localStorageKey.value)
-    }
-  } catch (e) {
-    console.error('写入 localStorage 失败:', e)
-  }
-}
-
-const getStoredConversation = () => {
-  try {
-    const data = localStorage.getItem(localStorageConvKey.value)
-    return data ? JSON.parse(data) : null
-  } catch (e) {
-    console.error('读取会话 localStorage 失败:', e)
-    return null
-  }
-}
-
-const setStoredConversation = (convId) => {
-  try {
-    if (convId) {
-      localStorage.setItem(localStorageConvKey.value, JSON.stringify({
-        conversationId: convId
-      }))
-    } else {
-      localStorage.removeItem(localStorageConvKey.value)
-    }
-  } catch (e) {
-    console.error('写入会话 localStorage 失败:', e)
-  }
-}
+const chatStateManager = computed(() => new ChatStateManager(uid.value))
 
 const sidebarWidth = computed(() => sidebarCollapsed.value ? 64 : 260)
 
@@ -88,100 +38,6 @@ const isLoadingMessages = ref(false)
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
-}
-
-const mapServerMessagesToLocal = (serverMessages) => {
-  const grouped = new Map()
-
-  for (const m of serverMessages) {
-    const role = m.role
-    const baseMsgId = (m.message_id || '').replace(/_(user|tool_.*_(start|end))$/, '')
-
-    if (role === 'user') {
-      grouped.set(m.message_id, {
-        id: m.message_id,
-        role: 'user',
-        content: m.content || m.prompt || '',
-        timestamp: m.time ? new Date(m.time).getTime() : Date.now()
-      })
-      continue
-    }
-
-    if (role === 'assistant') {
-      let item = grouped.get(baseMsgId)
-      if (!item) {
-        item = {
-          id: baseMsgId,
-          role: 'assistant',
-          parts: [],
-          reasoningContent: m.reasoning_content || '',
-          timestamp: m.time ? new Date(m.time).getTime() : Date.now(),
-          loading: false,
-          finished: true,
-          collapsed: true,
-          thinking: false
-        }
-        grouped.set(baseMsgId, item)
-      }
-      item.reasoningContent = m.reasoning_content || item.reasoningContent || ''
-      if (m.content) {
-        item.parts.push({
-          type: 'text',
-          content: m.content,
-          timestamp: item.timestamp
-        })
-      }
-      continue
-    }
-
-    if (role === 'tool') {
-      let item = grouped.get(baseMsgId)
-      if (!item) {
-        item = {
-          id: baseMsgId,
-          role: 'assistant',
-          parts: [],
-          reasoningContent: '',
-          timestamp: m.time ? new Date(m.time).getTime() : Date.now(),
-          loading: false,
-          finished: true,
-          collapsed: true,
-          thinking: false
-        }
-        grouped.set(baseMsgId, item)
-      }
-      const isStart = (m.message_id || '').endsWith('_start')
-      if (isStart) {
-        let params = null
-        try { params = m.tool_input ? JSON.parse(m.tool_input) : null } catch (e) { params = { raw: m.tool_input } }
-        item.parts.push({
-          type: 'tool_call',
-          params: { tool: m.tool_name, params },
-          result: null,
-          timestamp: Date.now(),
-          collapsed: true
-        })
-      } else {
-        const lastToolCall = item.parts.findLast
-          ? item.parts.findLast(p => p.type === 'tool_call' && !p.result)
-          : [...item.parts].reverse().find(p => p.type === 'tool_call' && !p.result)
-        const result = { tool: m.tool_name, result: m.tool_output }
-        if (lastToolCall) {
-          lastToolCall.result = result
-        } else {
-          item.parts.push({
-            type: 'tool_call',
-            params: null,
-            result,
-            timestamp: Date.now(),
-            collapsed: true
-          })
-        }
-      }
-    }
-  }
-
-  return Array.from(grouped.values()).sort((a, b) => a.timestamp - b.timestamp)
 }
 
 const loadConversations = async () => {
@@ -225,7 +81,7 @@ const loadConversationMessages = async (conv) => {
 const selectConversation = async (conv) => {
   if (currentConversation.value?.id === conv.id) return
   currentConversation.value = conv
-  setStoredConversation(conv.id)
+  chatStateManager.value.setConversationId(conv.id)
   await loadConversationMessages(conv)
 }
 
@@ -241,7 +97,7 @@ const createNewConversation = async () => {
     }
     conversations.value.unshift(newConv)
     currentConversation.value = newConv
-    setStoredConversation(newConv.id)
+    chatStateManager.value.setConversationId(newConv.id)
     messages.value = []
   } catch (e) {
     console.error('创建会话失败:', e)
@@ -258,10 +114,10 @@ const deleteConversation = async (conv) => {
       const next = conversations.value[0] || null
       currentConversation.value = next
       if (next) {
-        setStoredConversation(next.id)
+        chatStateManager.value.setConversationId(next.id)
         await loadConversationMessages(next)
       } else {
-        setStoredConversation(null)
+        chatStateManager.value.setConversationId(null)
         messages.value = []
       }
     }
@@ -289,7 +145,7 @@ const handleLogout = async () => {
   }
 
   // 清除存储的会话信息
-  setStoredConversation(null)
+  chatStateManager.value.setConversationId(null)
 
   // logout 内部会清理 localStorage 并自动弹出登录框（单例，不会重复弹）
   userStore.logout()
@@ -355,7 +211,7 @@ const handleSendMessage = async (message) => {
     if (result.message_id) {
       currentMessageId.value = result.message_id
       lastSequence.value = 0
-      setStoredState(result.message_id, 0)
+      chatStateManager.value.setStreamState(result.message_id, 0)
 
       const index = findMessageIndex(placeholderMessageId)
       if (index !== -1) {
@@ -472,7 +328,7 @@ const createStreamConnection = () => {
   let url = `http://localhost:8000/api/stream/${uid.value}`
   const params = new URLSearchParams()
 
-  const storedState = getStoredState()
+  const storedState = chatStateManager.value.getStreamState()
   const msgId = currentMessageId.value || storedState?.messageId
   const seq = lastSequence.value || storedState?.sequence || 0
 
@@ -505,14 +361,14 @@ const createStreamConnection = () => {
 
       if (data.sequence) {
         lastSequence.value = data.sequence
-        setStoredState(data.message_id, data.sequence)
+        chatStateManager.value.setStreamState(data.message_id, data.sequence)
       }
 
       if (data.status === true || data.finish_status === true) {
         isStreaming.value = false
         currentMessageId.value = null
         lastSequence.value = 0
-        setStoredState(null, 0)
+        chatStateManager.value.setStreamState(null, 0)
 
         const index = findMessageIndex(data.message_id)
         if (index !== -1) {
@@ -682,7 +538,7 @@ const createStreamConnection = () => {
     }
 
     if (isStreaming.value && currentMessageId.value) {
-      setStoredState(currentMessageId.value, lastSequence.value)
+      chatStateManager.value.setStreamState(currentMessageId.value, lastSequence.value)
       scheduleReconnect()
     }
   }
@@ -691,7 +547,7 @@ const createStreamConnection = () => {
 onMounted(async () => {
   userStore.loadUserFromStorage()
   
-  const storedState = getStoredState()
+  const storedState = chatStateManager.value.getStreamState()
   if (storedState && storedState.messageId) {
     console.log('检测到未完成的对话，尝试恢复')
     isStreaming.value = true
@@ -705,10 +561,10 @@ onMounted(async () => {
   await loadConversations()
   if (conversations.value.length > 0) {
     // 尝试恢复之前选中的会话，如果没有则选择第一个
-    const storedConv = getStoredConversation()
+    const storedConv = chatStateManager.value.getConversationId()
     let targetConv = null
-    if (storedConv && storedConv.conversationId) {
-      targetConv = conversations.value.find(c => c.id === storedConv.conversationId)
+    if (storedConv) {
+      targetConv = conversations.value.find(c => c.id === storedConv)
     }
     if (!targetConv) {
       targetConv = conversations.value[0]
