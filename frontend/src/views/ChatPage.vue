@@ -759,14 +759,15 @@ provide('currentUser', userStore.user)
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background: #f8fafc;
 }
 
 .chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #f5f5f5;
-  transition: margin-left 0.3s ease;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .chat-container {
@@ -789,29 +790,64 @@ provide('currentUser', userStore.user)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #999;
+  padding: 40px;
+  color: #64748b;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .empty-icon {
-  width: 64px;
-  height: 64px;
-  margin-bottom: 16px;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 24px;
   color: #1890ff;
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.15);
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 .empty-icon svg {
-  width: 100%;
-  height: 100%;
+  width: 48px;
+  height: 48px;
 }
 
 .empty-state h2 {
-  margin-bottom: 8px;
-  font-size: 18px;
-  color: #333;
+  margin-bottom: 12px;
+  font-size: 24px;
+  font-weight: 600;
+  color: #1e293b;
+  letter-spacing: -0.3px;
 }
 
 .empty-state p {
-  font-size: 14px;
+  font-size: 15px;
+  color: #64748b;
+  max-width: 400px;
+  text-align: center;
+  line-height: 1.6;
 }
 
 @media (max-width: 768px) {
@@ -827,6 +863,25 @@ provide('currentUser', userStore.user)
 
   .chat-page {
     position: relative;
+  }
+
+  .empty-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 20px;
+  }
+
+  .empty-icon svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .empty-state h2 {
+    font-size: 20px;
+  }
+
+  .empty-state p {
+    font-size: 14px;
   }
 }
 </style>

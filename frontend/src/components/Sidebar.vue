@@ -1,5 +1,6 @@
 <script setup>import { computed } from 'vue';
 import { Robot2Icon, UserIcon, LogoutIcon, DeleteIcon } from 'tdesign-icons-vue-next';
+import logoImage from '../assets/logo-1.png';
 const props = defineProps({
  collapsed: Boolean,
  conversations: Array,
@@ -47,29 +48,43 @@ const handleDelete = (conv, event) => {
   >
     <div class="sidebar-header">
       <div class="logo" v-if="!collapsed">
-       <robot-2-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
-        <span>AI 聊天助手</span>
+        <img :src="logoImage" alt="Chat with AI" class="logo-icon" />
+        <span class="logo-text">Chat with AI</span>
       </div>
       <div class="logo-mini" v-else>
-        <robot-2-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2"/>
+        <img :src="logoImage" alt="Chat with AI" class="logo-icon-mini" />
       </div>
     </div>
     
-    <button 
-      v-login
-      class="new-conversation-btn"
-      @click="emit('new')"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M12 5v14"/>
-        <path d="M5 12h14"/>
-      </svg>
-      <span v-if="!collapsed">新建对话</span>
-    </button>
+    <div class="new-conversation-wrapper" :class="{ 'new-conversation-wrapper-collapsed': collapsed }">
+      <button 
+        v-login
+        class="new-conversation-btn"
+        :class="{ 'new-conversation-btn-collapsed': collapsed }"
+        @click="emit('new')"
+      >
+        <svg v-if="!collapsed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 5v14"/>
+          <path d="M5 12h14"/>
+        </svg>
+        <span v-if="!collapsed">新建对话</span>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14"/>
+          <path d="M5 12h14"/>
+        </svg>
+      </button>
+      <span v-if="collapsed" class="new-conversation-text">新建对话</span>
+    </div>
     
     <div class="conversation-list" v-if="!collapsed">
       <div v-if="!conversations || conversations.length === 0" class="empty-conv">
-        暂无会话，点击上方"新建对话"开始
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <div class="empty-text">开始新的对话</div>
+        <div class="empty-hint">点击上方按钮创建第一个会话</div>
       </div>
       <div 
         v-for="conv in conversations" 
@@ -149,12 +164,13 @@ const handleDelete = (conv, event) => {
   left: 0;
   bottom: 0;
   width: 260px;
-  background: #fff;
-  border-right: 1px solid #e8e8e8;
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+  border-right: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  transition: width 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 100;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.04);
 }
 
 .sidebar-collapsed {
@@ -162,23 +178,36 @@ const handleDelete = (conv, event) => {
 }
 
 .sidebar-header {
-  padding: 16px;
-  border-bottom: 1px solid #e8e8e8;
+  padding: 20px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   font-size: 18px;
   font-weight: 600;
-  color: #1890ff;
+  color: #1e293b;
 }
 
-.logo svg,
-.logo-mini svg {
-  width: 32px;
-  height: 32px;
+.logo-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  transition: all 0.3s ease;
+}
+
+.logo-icon:hover {
+  transform: scale(1.05);
+}
+
+.logo-text {
+  font-weight: 600;
+  color: #1e293b;
+  letter-spacing: -0.3px;
+  font-size: 17px;
 }
 
 .logo-mini {
@@ -187,29 +216,131 @@ const handleDelete = (conv, event) => {
   color: #1890ff;
 }
 
+.logo-icon-mini {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  transition: all 0.3s ease;
+}
+
+.logo-icon-mini:hover {
+  transform: scale(1.05);
+}
+
 .new-conversation-btn {
   margin: 16px;
-  padding: 12px;
-  background: #1890ff;
+  padding: 14px;
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.2s;
+  font-weight: 500;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
 }
 
 .new-conversation-btn:hover {
-  background: #40a9ff;
+  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(24, 144, 255, 0.4);
+}
+
+.new-conversation-btn:active {
+  transform: translateY(0);
 }
 
 .new-conversation-btn svg {
   width: 18px;
   height: 18px;
+}
+
+/* 新建对话按钮容器 */
+.new-conversation-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.new-conversation-wrapper-collapsed {
+  align-items: center;
+  gap: 6px;
+}
+
+.new-conversation-btn {
+  margin: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
+}
+
+.new-conversation-wrapper-collapsed .new-conversation-btn {
+  margin: 8px 0 0 0;
+}
+
+.new-conversation-btn:hover {
+  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(24, 144, 255, 0.4);
+}
+
+.new-conversation-btn:active {
+  transform: translateY(0);
+}
+
+.new-conversation-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 折叠状态的按钮样式 */
+.new-conversation-btn-collapsed {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1.5px solid #1890ff;
+  border-radius: 50%;
+  color: #1890ff;
+  box-shadow: none;
+}
+
+.new-conversation-btn-collapsed:hover {
+  background: #1890ff;
+  color: #fff;
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+.new-conversation-btn-collapsed svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
+/* 折叠状态下的文字提示 */
+.new-conversation-text {
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .conversation-list {
@@ -222,77 +353,127 @@ const handleDelete = (conv, event) => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  border-radius: 8px;
+  padding: 14px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: background 0.2s;
-  margin-bottom: 4px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: 6px;
   position: relative;
+  border: 1px solid transparent;
 }
 
 .conversation-item:hover {
-  background: #f5f5f5;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: #e2e8f0;
 }
 
 .conversation-item:hover .conv-delete-btn {
   opacity: 1;
+  transform: translateY(-50%) scale(1);
 }
 
 .conversation-item.active {
-  background: #e6f7ff;
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  border-color: #91d5ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
 }
 
 .conv-delete-btn {
   position: absolute;
   right: 8px;
   top: 50%;
-  transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  transform: translateY(-50%) scale(0.8);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  color: #999;
+  color: #94a3b8;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .conv-delete-btn:hover {
   background: #fff2f0;
   color: #f5222d;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 2px 8px rgba(245, 34, 45, 0.15);
 }
 
 .conv-delete-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .empty-conv {
-  padding: 16px;
-  font-size: 12px;
-  color: #bbb;
+  padding: 48px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   text-align: center;
 }
 
-.conv-icon {
-  width: 40px;
-  height: 40px;
+.empty-icon {
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: #f0f5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1890ff;
+  margin-bottom: 8px;
+}
+
+.empty-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.empty-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+}
+
+.conv-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #e6f0ff 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #1890ff;
   flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.conversation-item:hover .conv-icon {
+  transform: scale(1.05);
+  background: linear-gradient(135deg, #e6f0ff 0%, #d9ebff 100%);
+}
+
+.conversation-item.active .conv-icon {
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+  color: white;
+  box-shadow: 0 3px 10px rgba(24, 144, 255, 0.3);
 }
 
 .conv-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 
 .conv-info {
@@ -327,74 +508,90 @@ const handleDelete = (conv, event) => {
 .conversation-list-mini {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .conversation-item-mini {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #f0f0f0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #e6f0ff 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #666;
+  color: #1890ff;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 2px solid transparent;
 }
 
 .conversation-item-mini:hover {
-  background: #e6f7ff;
-  color: #1890ff;
+  background: linear-gradient(135deg, #e6f0ff 0%, #d9ebff 100%);
+  transform: scale(1.1);
+  border-color: #91d5ff;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
 }
 
 .conversation-item-mini.active {
-  background: #1890ff;
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
   color: #fff;
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.4);
+  transform: scale(1.1);
 }
 
 .conversation-item-mini svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 
 .user-section {
-  padding: 12px 16px;
-  border-top: 1px solid #e8e8e8;
+  padding: 16px;
+  border-top: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   cursor: pointer;
-  padding: 8px;
-  border-radius: 8px;
-  transition: background 0.2s;
+  padding: 12px;
+  border-radius: 12px;
+  transition: all 0.25s ease;
+  border: 1px solid transparent;
 }
 
 .user-info:hover {
-  background: #f5f5f5;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .user-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #e6f7ff;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #1890ff;
+  color: white;
+  box-shadow: 0 3px 10px rgba(24, 144, 255, 0.3);
+  transition: all 0.25s ease;
+}
+
+.user-info:hover .user-avatar {
+  transform: scale(1.05);
+  box-shadow: 0 4px 14px rgba(24, 144, 255, 0.4);
 }
 
 .user-avatar svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .user-details {
@@ -443,31 +640,35 @@ const handleDelete = (conv, event) => {
 
 .toggle-btn {
   position: absolute;
-  right: -12px;
+  right: -14px;
   top: 50%;
   transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #fff;
-  border: 1px solid #e8e8e8;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #999;
-  transition: all 0.2s;
+  color: #64748b;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .toggle-btn:hover {
-  background: #f5f5f5;
-  color: #666;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #1890ff;
+  border-color: #1890ff;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .toggle-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 @media (max-width: 768px) {
