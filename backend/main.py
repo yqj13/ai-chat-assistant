@@ -232,7 +232,7 @@ async def user_register(request: RegisterRequest, db: Session = Depends(get_db))
         "user_id": user.id,
         "uid": user.uid,
         "username": user.username,
-        "created_at": user.created_at.isoformat() if user.created_at else None
+        "created_at": user.created_at.isoformat() + 'Z' if user.created_at else None
     })
 
 
@@ -259,7 +259,7 @@ async def user_auth(request: CredentialLoginRequest, db: Session = Depends(get_d
         "user_id": user.id,
         "uid": user.uid,
         "username": user.username,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "created_at": user.created_at.isoformat() + 'Z' if user.created_at else None,
         "is_new_user": is_new_user
     })
 
@@ -274,7 +274,7 @@ async def user_login(request: CredentialLoginRequest, db: Session = Depends(get_
         "user_id": user.id,
         "uid": user.uid,
         "username": user.username,
-        "created_at": user.created_at.isoformat() if user.created_at else None
+        "created_at": user.created_at.isoformat() + 'Z' if user.created_at else None
     })
 
 
@@ -286,7 +286,7 @@ async def user_login_by_uid(request: LoginRequest, db: Session = Depends(get_db)
         "user_id": user.id,
         "uid": user.uid,
         "username": user.username,
-        "created_at": user.created_at.isoformat() if user.created_at else None
+        "created_at": user.created_at.isoformat() + 'Z' if user.created_at else None
     })
 
 
@@ -300,7 +300,7 @@ async def get_user(uid: str, db: Session = Depends(get_db)):
         "user_id": user.id,
         "uid": user.uid,
         "username": user.username,
-        "created_at": user.created_at.isoformat() if user.created_at else None
+        "created_at": user.created_at.isoformat() + 'Z' if user.created_at else None
     })
 
 
@@ -314,7 +314,7 @@ async def create_session(request: SessionCreateRequest, db: Session = Depends(ge
     return JSONResponse(content={
         "session_id": session.session_id,
         "title": session.title,
-        "created_at": session.created_at.isoformat() if session.created_at else None
+        "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None
     })
 
 
@@ -329,8 +329,8 @@ async def get_user_sessions(uid: str, db: Session = Depends(get_db)):
         {
             "session_id": s.session_id,
             "title": s.title,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-            "updated_at": s.updated_at.isoformat() if s.updated_at else None
+            "created_at": s.created_at.isoformat() + 'Z' if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() + 'Z' if s.updated_at else None
         }
         for s in sessions
     ])
@@ -345,8 +345,8 @@ async def get_session(session_id: str, db: Session = Depends(get_db)):
     return JSONResponse(content={
         "session_id": session.session_id,
         "title": session.title,
-        "created_at": session.created_at.isoformat() if session.created_at else None,
-        "updated_at": session.updated_at.isoformat() if session.updated_at else None
+        "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
+        "updated_at": session.updated_at.isoformat() + 'Z' if session.updated_at else None
     })
 
 
@@ -359,7 +359,7 @@ async def update_session(session_id: str, request: SessionUpdateRequest, db: Ses
     return JSONResponse(content={
         "session_id": session.session_id,
         "title": session.title,
-        "updated_at": session.updated_at.isoformat() if session.updated_at else None
+        "updated_at": session.updated_at.isoformat() + 'Z' if session.updated_at else None
     })
 
 
@@ -387,7 +387,7 @@ async def get_session_messages(session_id: str, limit: Optional[int] = None, db:
             "tool_input": m.tool_input,
             "tool_output": m.tool_output,
             "message_type": m.message_type,
-            "time": m.time.isoformat() if m.time else None,
+            "time": m.time.isoformat() + 'Z' if m.time else None,
             "sequence": m.sequence,
             "finish_status": m.finish_status
         }

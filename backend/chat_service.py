@@ -32,6 +32,7 @@ class ChatService:
         }
         self.conversation_history: Dict[str, List] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
+        self.max_history_length = 20  # 最大历史对话轮数
 
     def _create_llm(self, deep_thinking: bool = False):
         llm_config = self.base_llm_config.copy()
@@ -69,6 +70,41 @@ class ChatService:
             return MessageType.SEARCH_END
         return MessageType.TOOL_END
 
+    def _build_messages_with_history(
+        self,
+        input_text: str,
+        history_key: str,
+        web_search: bool = False
+    ) -> List[Dict]:
+        """构建包含历史对话的消息列表"""
+        system_prompt = """你是一个专业的AI助手，能够处理准确的答案。回答时返回markdown格式。
+当涉及数学公式时，请使用KaTeX格式输出。行内公式使用 $公式$ 格式，块级公式使用 $$公式$$ 格式。
+例如：行内公式 $E=mc^2$，块级公式：
+$$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
+"""
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 添加历史对话
+        history = self.conversation_history.get(history_key, [])
+        # 截取最近的历史记录
+        if len(history) > self.max_history_length:
+            history = history[-self.max_history_length:]
+        
+        for msg in history:
+            if isinstance(msg, HumanMessage):
+                messages.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                messages.append({"role": "assistant", "content": msg.content})
+        
+        # 添加当前用户输入
+        current_content = input_text
+        if web_search:
+            current_content = "[强制搜索] " + current_content
+        messages.append({"role": "user", "content": current_content})
+        
+        return messages
+
     def _parse_tool_output(self, tool_output) -> Dict:
         """清洗工具输出，返回干净的字典格式"""
         if not tool_output:
@@ -98,6 +134,27 @@ class ChatService:
         except (json.JSONDecodeError, TypeError):
             return {"raw": output_str}
 
+    def _load_history_from_database(self, history_key: str, context_id: Optional[str] = None):
+        """从数据库加载历史对话记录"""
+        if context_id and history_key not in self.conversation_history:
+            try:
+                db = get_db_sync()
+                messages = db_service.get_session_messages(db, context_id)
+                db.close()
+                
+                history = []
+                for msg in messages:
+                    if msg.role == "user":
+                        history.append(HumanMessage(content=msg.content or msg.prompt or ""))
+                    elif msg.role == "assistant":
+                        history.append(AIMessage(content=msg.content or ""))
+                
+                self.conversation_history[history_key] = history
+                logger.info(f"Loaded {len(history)} history messages from database for {history_key}")
+            except Exception as e:
+                logger.error(f"Failed to load history from database: {e}")
+                self.conversation_history[history_key] = []
+
     async def chat(
         self,
         content: str,
@@ -120,9 +177,11 @@ class ChatService:
                 return last_message_id
 
         history_key = context_id or uid
-        if history_key not in self.conversation_history:
-            self.conversation_history[history_key] = []
-
+        
+        # 从数据库加载历史对话（如果内存中没有）
+        self._load_history_from_database(history_key, context_id)
+        
+        # 添加新用户消息到历史
         self.conversation_history[history_key].append(HumanMessage(content=content))
         
         # 保存用户消息到数据库
@@ -194,19 +253,12 @@ class ChatService:
                 json.dumps(init_chunk.dict(), ensure_ascii=False)
             )
 
-            system_prompt = """你是一个专业的AI助手，能够处理准确的答案。回答时返回markdown格式。
-当涉及数学公式时，请使用KaTeX格式输出。行内公式使用 $公式$ 格式，块级公式使用 $$公式$$ 格式。
-例如：行内公式 $E=mc^2$，块级公式：
-$$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
-"""
-
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": input_text}
-            ]
-            
-            if web_search:
-                messages[1]["content"] = "[强制搜索] " + input_text
+            # 构建包含历史对话的消息
+            messages = self._build_messages_with_history(
+                input_text=input_text,
+                history_key=history_key,
+                web_search=web_search
+            )
             
             # If deep thinking is enabled, use direct OpenAI SDK to get reasoning_content
             if deep_thinking:
@@ -365,8 +417,19 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
         current_content = ""
         current_reasoning_content = ""
         
+        # 转换 OpenAI 格式的消息为 LangChain 格式的消息
+        langchain_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                # 系统提示可以添加到消息中，或者我们可以单独处理
+                continue
+            elif msg["role"] == "user":
+                langchain_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                langchain_messages.append(AIMessage(content=msg["content"]))
+        
         async for event in agent.astream_events(
-            {"messages": messages},
+            {"messages": langchain_messages},
             config=config,
             version="v2"
         ):

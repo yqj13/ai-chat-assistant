@@ -1,57 +1,39 @@
-<script setup>import { computed } from 'vue';
-import { Robot2Icon, UserIcon, LogoutIcon, DeleteIcon } from 'tdesign-icons-vue-next';
+<script setup>
+import { computed } from 'vue';
+import { UserIcon, LogoutIcon, DeleteIcon } from 'tdesign-icons-vue-next';
 import logoImage from '../assets/logo-1.png';
+import { formatTimeShort } from '../utils';
+
 const props = defineProps({
- collapsed: Boolean,
- conversations: Array,
- currentConversation: Object,
- currentUser: Object
+  collapsed: Boolean,
+  conversations: Array,
+  currentConversation: Object,
+  currentUser: Object
 });
+
 const emit = defineEmits(['toggle', 'select', 'new', 'delete', 'logout']);
-const formatTime = (timestamp) => {
- const date = new Date(timestamp);
- const now = new Date();
- const diff = now.getTime() - date.getTime();
- if (diff < 60000) {
- return '刚刚';
- }
- else if (diff < 3600000) {
- return Math.floor(diff / 60000) + '分钟前';
- }
- else if (diff < 86400000) {
- return Math.floor(diff / 3600000) + '小时前';
- }
- else if (diff < 604800000) {
- return Math.floor(diff / 86400000) + '天前';
- }
- else {
- return date.getMonth() + 1 + '/' + date.getDate();
- }
-};
+
 const displayName = computed(() => {
- if (!props.currentUser)
- return '';
- return props.currentUser.username || props.currentUser.uid || '用户';
+  if (!props.currentUser) return '';
+  return props.currentUser.username || props.currentUser.uid || '用户';
 });
+
 const handleDelete = (conv, event) => {
- event.stopPropagation();
- if (window.confirm(`确认删除会话 "${conv.title}"？该操作不可恢复。`)) {
- emit('delete', conv);
- }
+  event.stopPropagation();
+  if (window.confirm(`确认删除会话 "${conv.title}"？该操作不可恢复。`)) {
+    emit('delete', conv);
+  }
 };
 </script>
 
 <template>
-  <aside 
-    class="sidebar"
-    :class="{ 'sidebar-collapsed': collapsed }"
-  >
+  <aside class="sidebar" :class="{ 'sidebar-collapsed': collapsed }">
     <div class="sidebar-header">
-      <div class="logo" v-if="!collapsed">
+      <div v-if="!collapsed" class="logo">
         <img :src="logoImage" alt="Chat with AI" class="logo-icon" />
         <span class="logo-text">Chat with AI</span>
       </div>
-      <div class="logo-mini" v-else>
+      <div v-else class="logo-mini">
         <img :src="logoImage" alt="Chat with AI" class="logo-icon-mini" />
       </div>
     </div>
@@ -76,7 +58,7 @@ const handleDelete = (conv, event) => {
       <span v-if="collapsed" class="new-conversation-text">新建对话</span>
     </div>
     
-    <div class="conversation-list" v-if="!collapsed">
+    <div v-if="!collapsed" class="conversation-list">
       <div v-if="!conversations || conversations.length === 0" class="empty-conv">
         <div class="empty-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -100,20 +82,16 @@ const handleDelete = (conv, event) => {
         </div>
         <div class="conv-info">
           <div class="conv-title">{{ conv.title }}</div>
-          <div class="conv-preview">
-            {{ conv.lastMessage || '暂无消息' }}
-          </div>
+          <div class="conv-preview">{{ conv.lastMessage || '暂无消息' }}</div>
         </div>
-        <div class="conv-time">
-          {{ formatTime(conv.timestamp) }}
-        </div>
+        <div class="conv-time">{{ formatTimeShort(conv.timestamp) }}</div>
         <button class="conv-delete-btn" title="删除会话" @click="handleDelete(conv, $event)">
           <delete-icon :fill-color='"transparent"' :stroke-color='"currentColor"' :stroke-width="2" />
         </button>
       </div>
     </div>
     
-    <div class="conversation-list-mini" v-else>
+    <div v-else class="conversation-list-mini">
       <div 
         v-for="conv in conversations" 
         :key="conv.id"
@@ -143,10 +121,7 @@ const handleDelete = (conv, event) => {
       </button>
     </div>
     
-    <button 
-      class="toggle-btn"
-      @click="emit('toggle')"
-    >
+    <button class="toggle-btn" @click="emit('toggle')">
       <svg v-if="!collapsed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path d="M15 18l-6-6 6-6"/>
       </svg>
@@ -192,11 +167,15 @@ const handleDelete = (conv, event) => {
   color: #1e293b;
 }
 
+.logo-icon,
+.logo-icon-mini {
+  object-fit: contain;
+  transition: all 0.3s ease;
+}
+
 .logo-icon {
   width: 40px;
   height: 40px;
-  object-fit: contain;
-  transition: all 0.3s ease;
 }
 
 .logo-icon:hover {
@@ -219,48 +198,12 @@ const handleDelete = (conv, event) => {
 .logo-icon-mini {
   width: 36px;
   height: 36px;
-  object-fit: contain;
-  transition: all 0.3s ease;
 }
 
 .logo-icon-mini:hover {
   transform: scale(1.05);
 }
 
-.new-conversation-btn {
-  margin: 16px;
-  padding: 14px;
-  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
-}
-
-.new-conversation-btn:hover {
-  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(24, 144, 255, 0.4);
-}
-
-.new-conversation-btn:active {
-  transform: translateY(0);
-}
-
-.new-conversation-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-/* 新建对话按钮容器 */
 .new-conversation-wrapper {
   display: flex;
   flex-direction: column;
@@ -309,7 +252,6 @@ const handleDelete = (conv, event) => {
   height: 18px;
 }
 
-/* 折叠状态的按钮样式 */
 .new-conversation-btn-collapsed {
   padding: 0;
   width: 28px;
@@ -334,7 +276,6 @@ const handleDelete = (conv, event) => {
   stroke-width: 2;
 }
 
-/* 折叠状态下的文字提示 */
 .new-conversation-text {
   font-size: 11px;
   color: #64748b;
@@ -674,10 +615,6 @@ const handleDelete = (conv, event) => {
 @media (max-width: 768px) {
   .sidebar {
     z-index: 100;
-  }
-  
-  .sidebar-collapsed {
-    width: 64px;
   }
 }
 </style>
