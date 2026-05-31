@@ -110,9 +110,10 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { Steps as TSteps, StepItem as TStepItem, Table as TTable } from 'tdesign-vue-next'
 import { Robot2Icon, UserIcon, ChevronDownSIcon, ChevronUpIcon, AiToolIcon } from 'tdesign-icons-vue-next'
+import 'katex/dist/katex.min.css'
 import userAvatar from '../assets/user-avatar.png'
 import aiAvatar from '../assets/ai-avatar.png'
 
@@ -133,9 +134,40 @@ const props = defineProps({
 
 
 const chatMessages = ref(null)
+const katexLoaded = ref(false)
+
+const enableKatex = ref(true)
+
+const loadKatexScript = () => {
+  if (katexLoaded.value || typeof window === 'undefined') return
+
+  const script = document.createElement('script')
+  script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'
+  script.async = true
+  script.onload = () => {
+    katexLoaded.value = true
+    console.log('KaTeX loaded successfully')
+  }
+  script.onerror = () => {
+    console.error('Failed to load KaTeX')
+  }
+  document.head.appendChild(script)
+}
+
+const options = computed(() => ({
+  engine: {
+    syntax: enableKatex.value ? {
+      mathBlock: {
+        engine: 'katex',
+      },
+      inlineMath: {
+        engine: 'katex',
+      },
+    } : undefined,
+  },
+}))
 
 const formatTime = (timestamp) => {
-  if (!timestamp) return ''
   const date = new Date(timestamp)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
@@ -160,19 +192,6 @@ const formatTime = (timestamp) => {
     return `${month}/${day} ${hours}:${minutes}`
   }
 }
-
-const options = ref({
-  engine: {
-    syntax: {
-      mathBlock: {
-        engine: 'KaTeX',
-      },
-      inlineMath: {
-        engine: 'KaTeX',
-      },
-    }
-  },
-})
 
 const getToolTitle = (tool) => {
   const toolNameMap = {
@@ -611,6 +630,7 @@ watch(
 
 onMounted(() => {
   scrollToBottom()
+  loadKatexScript()
 })
 
 defineExpose({
