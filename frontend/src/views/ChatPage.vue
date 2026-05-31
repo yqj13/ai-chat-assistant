@@ -14,7 +14,7 @@ import { useConversation } from '../composables/useConversation'
 const router = useRouter()
 const userStore = useUserStore()
 const uid = computed(() => userStore.getUid())
-const chatStateManager = computed(() => new ChatStateManager(uid.value))
+const chatStateManager = ref(null)
 const chatStream = useChatStream(uid, chatStateManager)
 const conversation = useConversation(uid, chatStateManager)
 
@@ -117,8 +117,23 @@ const handleStreamMessage = (data) => {
       }
     }
 
+    // 如果消息不存在，且不是通过数据库里的消息，创建一个新的
     if (index === -1 && data.message_id) {
-      if (!pendingPlaceholderId.value) {
+      // 检查是否有 pending 的消息，处理正常流式消息
+      if (pendingPlaceholderId.value) {
+        index = findMessageIndex(pendingPlaceholderId.value)
+        if (index !== -1) {
+          messages.value[index] = {
+            ...messages.value[index],
+            id: data.message_id
+          }
+          pendingPlaceholderId.value = null
+          currentMessageId.value = data.message_id
+        }
+      }
+      
+      // 如果还是没有找到，创建一个新消息
+      if (index === -1) {
         messages.value.push({
           id: data.message_id,
           role: 'assistant',
@@ -126,18 +141,20 @@ const handleStreamMessage = (data) => {
           reasoningContent: '',
           timestamp: Date.now(),
           loading: true,
-          finished: false
+          finished: false,
+          collapsed: true,
+          thinking: false
         })
         index = messages.value.length - 1
-      } else {
-        console.warn(`收到未知 message_id: ${data.message_id}，当前 pending: ${pendingPlaceholderId.value}，忽略`)
-        return
       }
     }
 
     if (index === -1) return
 
     const existingMessage = messages.value[index]
+
+    // 判断这是否是重放消息：如果sequence === 1，说明是从头开始重放
+    const isReplay = data.sequence !== undefined && data.sequence === 1
 
     let newLoading = existingMessage.loading
     if (newLoading && (data.content || data.reasoning_content)) {
@@ -149,7 +166,12 @@ const handleStreamMessage = (data) => {
 
     if (data.type === 0 || data.type === undefined) {
       if (data.reasoning_content) {
-        newReasoningContent += data.reasoning_content
+        // 如果是重放第一条消息，清空已有内容，确保完整重建
+        if (isReplay) {
+          newReasoningContent = data.reasoning_content
+        } else {
+          newReasoningContent += data.reasoning_content
+        }
         messages.value[index].collapsed = false
         messages.value[index].thinking = true
       } else {
@@ -158,7 +180,13 @@ const handleStreamMessage = (data) => {
       }
 
       if (data.content) {
-        const lastPart = newParts.length > 0 ? newParts[newParts.length - 1] : null
+        let lastPart = newParts.length > 0 ? newParts[newParts.length - 1] : null
+
+        // 如果是重放第一条消息，清空已有parts，确保完整重建
+        if (isReplay) {
+          newParts = []
+          lastPart = null
+        }
 
         if (lastPart && lastPart.type === 'text') {
           lastPart.content += data.content
@@ -173,6 +201,11 @@ const handleStreamMessage = (data) => {
       messages.value[index].toolCallsCollapsed = true
     } else {
       if (data.content) {
+        // 如果是重放第一条消息，清空已有parts，确保完整重建
+        if (isReplay) {
+          newParts = []
+        }
+        
         try {
           const toolData = JSON.parse(data.content)
 
@@ -328,16 +361,21 @@ const handleLogout = async () => {
 
 onMounted(async () => {
   userStore.loadUserFromStorage()
-
-  const storedState = chatStateManager.value.getStreamState()
-  if (storedState && storedState.messageId) {
-    console.log('检测到未完成的对话，尝试恢复')
-    isStreaming.value = true
-    currentMessageId.value = storedState.messageId
-    lastSequence.value = storedState.sequence || 0
+  
+  if (uid.value) {
+    chatStateManager.value = new ChatStateManager(uid.value)
   }
 
-  createConnection(handleStreamMessage)
+  let storedState = null
+  if (chatStateManager.value) {
+    storedState = chatStateManager.value.getStreamState()
+    if (storedState && storedState.messageId) {
+      console.log('检测到未完成的对话，尝试恢复', storedState)
+      isStreaming.value = true
+      currentMessageId.value = storedState.messageId
+      lastSequence.value = storedState.sequence || 0
+    }
+  }
 
   await loadConversations()
   if (conversations.value.length > 0) {
@@ -351,10 +389,30 @@ onMounted(async () => {
     }
     await selectConversation(targetConv)
   }
+
+  if (uid.value) {
+    createConnection(handleStreamMessage)
+  }
 })
 
 onUnmounted(() => {
   close()
+})
+
+watch(uid, async (newUid) => {
+  if (newUid) {
+    chatStateManager.value = new ChatStateManager(newUid)
+    if (!eventSource.value) {
+      const storedState = chatStateManager.value.getStreamState()
+      if (storedState && storedState.messageId) {
+        console.log('检测到未完成的对话，尝试恢复')
+        isStreaming.value = true
+        currentMessageId.value = storedState.messageId
+        lastSequence.value = storedState.sequence || 0
+      }
+      createConnection(handleStreamMessage)
+    }
+  }
 })
 
 watch(() => userStore.isLoggedIn, async (loggedIn) => {
@@ -364,9 +422,6 @@ watch(() => userStore.isLoggedIn, async (loggedIn) => {
     await loadConversations()
     if (conversations.value.length > 0 && !currentConversation.value) {
       await selectConversation(conversations.value[0])
-    }
-    if (!eventSource.value) {
-      createConnection(handleStreamMessage)
     }
   }
 })

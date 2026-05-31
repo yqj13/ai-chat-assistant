@@ -89,12 +89,16 @@ class SSEManager:
         event = self._get_event(uid)
 
         # 断点续传：回放缓存消息
-        if current_message_id and last_sequence > 0:
+        if current_message_id:
             async with self.locks[uid]:
                 messages = self.message_cache[uid].get(current_message_id, [])
-                # 从 last_sequence 之后开始发送
-                last_index = last_sequence
-                for i in range(last_sequence, len(messages)):
+                
+                # 断点续传时，完整重放所有消息，确保上下文完整
+                # 即使数据库已经加载了部分消息，SSE重放可以确保完整性
+                start_idx = 0
+                last_index = start_idx
+                
+                for i in range(start_idx, len(messages)):
                     msg = messages[i]
                     yield f"data: {msg}\n\n"
                     last_index = i + 1
@@ -104,22 +108,6 @@ class SSEManager:
                         msg_data = json.loads(msg)
                         if msg_data.get("status") is True:
                             logger.info(f"Stream completed (cached) for user {uid}")
-                            return
-                    except json.JSONDecodeError:
-                        pass
-        elif current_message_id:
-            # 有 message_id 但 last_sequence=0，回放所有消息
-            async with self.locks[uid]:
-                messages = self.message_cache[uid].get(current_message_id, [])
-                for i in range(len(messages)):
-                    msg = messages[i]
-                    yield f"data: {msg}\n\n"
-                    last_index = i + 1
-
-                    try:
-                        msg_data = json.loads(msg)
-                        if msg_data.get("status") is True:
-                            logger.info(f"Stream completed (full replay) for user {uid}")
                             return
                     except json.JSONDecodeError:
                         pass
